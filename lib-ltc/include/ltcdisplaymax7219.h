@@ -1,7 +1,7 @@
 /**
  * @file ltcdisplaymax7219.h
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -34,15 +34,15 @@
 #include "ltcdisplaymax72197segment.h"
 #include "ltcdisplaymax7219matrix.h"
 
-namespace ltc {
-namespace display {
-namespace max7219 {
+
+
+namespace ltc::display::max7219 {
 enum class Types {
 	MATRIX, SEGMENT
 };
-}  // namespace max7219
-}  // namespace display
-}  // namespace ltc
+} // namespace ltc::display::max7219
+
+
 
 class LtcDisplayMax7219 {
 public:

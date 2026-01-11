@@ -2,7 +2,7 @@
  * @file pixeldmxparams.h
  *
  */
-/* Copyright (C) 2017-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2017-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"); to deal
@@ -98,7 +98,7 @@ public:
 		Builder(nullptr, pBuffer, nLength, nSize);
 	}
 
-	void Set(PixelDmxConfiguration *pPixelDmxConfiguration);
+	void Set();
 
 	uint16_t GetStartUniversePort(uint32_t nOutputPortIndex, bool& isSet) const {
 		if (nOutputPortIndex < pixeldmxparams::MAX_PORTS) {
@@ -114,7 +114,7 @@ public:
 		return m_Params.nTestPattern;
 	}
 
-	static void staticCallbackFunction(void *p, const char *s);
+	static void StaticCallbackFunction(void *p, const char *s);
 
 private:
 	void Dump();

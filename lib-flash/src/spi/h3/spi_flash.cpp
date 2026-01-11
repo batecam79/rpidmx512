@@ -32,15 +32,15 @@
 #endif
 #include <cassert>
 
-#include "debug.h"
-
-#include "./../../spi/spi_flash_internal.h"
+#include "../spi_flash_internal.h"
 
 #include "h3.h"
 #include "h3_spi.h"
 #include "h3_spi_internal.h"
 #include "h3_gpio.h"
 #include "h3_ccu.h"
+
+#include "debug.h"
 
 struct spi0_status {
 	bool		transfer_active;
@@ -54,7 +54,7 @@ struct spi0_status {
 
 static struct spi0_status s_spi0_status;
 
-static void spi0_set_chip_select(void) {
+static void spi0_set_chip_select() {
 	uint32_t value = H3_SPI0->TC;
 
 	value |= TC_SS_OWNER;	// Software controlled
@@ -72,7 +72,7 @@ static void spi0_set_data_mode(h3_spi_mode_t mode) {
 	H3_SPI0->TC = value;
 }
 
-static void spi0_begin(void) {
+static void spi0_begin() {
 	h3_gpio_fsel(H3_PORT_TO_GPIO(H3_GPIO_PORTC, 3), H3_PC3_SELECT_SPI0_CS);
 	h3_gpio_fsel(H3_PORT_TO_GPIO(H3_GPIO_PORTC, 2), H3_PC2_SELECT_SPI0_CLK);
 	h3_gpio_fsel(H3_PORT_TO_GPIO(H3_GPIO_PORTC, 1), H3_PC1_SELECT_SPI0_MISO);
@@ -105,19 +105,19 @@ static void spi0_begin(void) {
 #endif
 }
 
-inline static uint32_t _query_txfifo(void) {
+inline static uint32_t _query_txfifo() {
 	uint32_t value = H3_SPI0->FS & FS_TX_CNT;
 	value >>= FS_TXCNT_BIT_POS;
 	return value;
 }
 
-inline static uint32_t _query_rxfifo(void) {
+inline static uint32_t _query_rxfifo() {
 	uint32_t value = H3_SPI0->FS & FS_RX_CNT;
 	value >>= FS_RXCNT_BIT_POS;
 	return value;
 }
 
-inline static void _clear_fifos(void) {
+inline static void _clear_fifos() {
 	H3_SPI0->FC = (FC_RX_RST | FC_TX_RST);
 
 	int timeout;
@@ -132,7 +132,7 @@ inline static void _clear_fifos(void) {
 	//TODO Do we need to set the trigger level of RxFIFO/TxFIFO?
 }
 
-static void _read_rxfifo(void)
+static void _read_rxfifo()
 {
 	if (s_spi0_status.rxcnt == s_spi0_status.rxlen) {
 		return;
@@ -148,7 +148,7 @@ static void _read_rxfifo(void)
 	}
 }
 
-static void _write_txfifo(void) {
+static void _write_txfifo() {
 
 	if (s_spi0_status.txcnt == s_spi0_status.txlen) {
 		return;
@@ -166,7 +166,7 @@ static void _write_txfifo(void) {
 
 }
 
-static void _interrupt_handler(void) {
+static void _interrupt_handler() {
 	uint32_t intr = H3_SPI0->IS;
 
 	if (intr & IS_RX_FULL) {
@@ -295,7 +295,7 @@ static void spi0_setup_clock(uint32_t pll_clock, uint32_t spi_clock) {
 #endif
 }
 
-int spi_init(void) {
+void spi_init() {
 	spi0_begin();
 
 	spi0_set_chip_select(); // H3_SPI_CS_NONE
@@ -304,29 +304,24 @@ int spi_init(void) {
 
 	h3_gpio_fsel(H3_PORT_TO_GPIO(H3_GPIO_PORTC, 3), GPIO_FSEL_OUTPUT);
 	h3_gpio_set(H3_PORT_TO_GPIO(H3_GPIO_PORTC, 3));
-
-	return 0;
 }
 
-int spi_xfer(uint32_t len, const uint8_t *dout, uint8_t *din, uint32_t flags) {
-
-	if (flags & SPI_XFER_BEGIN) {
+void spi_xfer(const uint32_t nLength, const uint8_t *pOut, uint8_t *pIn, uint32_t nFlags) {
+	if (nFlags & SPI_XFER_BEGIN) {
 		h3_gpio_clr(H3_PORT_TO_GPIO(H3_GPIO_PORTC, 3));
 	}
 
-	if (len != 0) {
-		if (din == 0) {
-			spi0_writenb((char *) dout, len);
-		} else if (dout == 0) {
-			spi0_transfern(reinterpret_cast<char *>(din), len);
+	if (nLength != 0) {
+		if (pIn == nullptr) {
+			spi0_writenb((char *) pOut, nLength);
+		} else if (pOut == nullptr) {
+			spi0_transfern(reinterpret_cast<char *>(pIn), nLength);
 		} else {
-			spi0_transfernb((char *) dout, (char *) din, len);
+			spi0_transfernb((char *) pOut, (char *) pIn, nLength);
 		}
 	}
 
-	if (flags & SPI_XFER_END) {
+	if (nFlags & SPI_XFER_END) {
 		h3_gpio_set(H3_PORT_TO_GPIO(H3_GPIO_PORTC, 3));
 	}
-
-	return 0;
 }

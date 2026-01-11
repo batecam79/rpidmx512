@@ -23,11 +23,6 @@
  * THE SOFTWARE.
  */
 
-#if !defined(__clang__)	// Needed for compiling on MacOS
- #pragma GCC push_options
- #pragma GCC optimize ("Os")
-#endif
-
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
@@ -86,7 +81,7 @@ bool ModeParams::Load(uint32_t nMotorIndex) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile configfile(ModeParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(ModeParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(m_aFileName)) {
 		ModeParamsStore::Update(nMotorIndex, &m_Params);
@@ -109,7 +104,7 @@ void ModeParams::Load(uint32_t nMotorIndex, const char *pBuffer, uint32_t nLengt
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(ModeParams::staticCallbackFunction, this);
+	ReadConfigFile config(ModeParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
@@ -211,7 +206,7 @@ void ModeParams::callbackFunction(const char *pLine) {
 }
 
 void ModeParams::Builder(uint32_t nMotorIndex, const struct modeparams::Params *ptModeParams, char *pBuffer, uint32_t nLength, uint32_t& nSize) {
-	DEBUG1_ENTRY
+	DEBUG_ENTRY
 
 	assert(pBuffer != nullptr);
 
@@ -242,7 +237,7 @@ void ModeParams::Builder(uint32_t nMotorIndex, const struct modeparams::Params *
 
 	nSize = builder.GetSize();
 
-	DEBUG1_EXIT
+	DEBUG_EXIT
 }
 
 void ModeParams::Save(uint32_t nMotorIndex, char *pBuffer, uint32_t nLength, uint32_t& nSize) {
@@ -298,7 +293,7 @@ void ModeParams::GetSlotInfo(uint32_t nOffset, SlotInfo &tLightSetSlotInfo) {
 	tLightSetSlotInfo.nCategory = 0xFFFF;	// SD_UNDEFINED
 }
 
-void ModeParams::staticCallbackFunction(void *p, const char *s) {
+void ModeParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 

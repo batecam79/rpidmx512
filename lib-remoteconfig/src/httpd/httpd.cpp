@@ -2,7 +2,7 @@
  * @file httpd.cpp
  *
  */
-/* Copyright (C) 2021-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,10 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_HTTPD)
+# undef NDEBUG
+#endif
+
 #include <cstring>
 #include <cstdio>
 #include <ctype.h>
@@ -31,7 +35,8 @@
 #include "httpd/httpd.h"
 
 #include "network.h"
-#include "mdns.h"
+#include "net/tcp.h"
+#include "net/apps/mdns.h"
 
 #include "../../lib-network/config/net_config.h"
 
@@ -39,16 +44,14 @@ HttpDaemon::HttpDaemon() {
 	DEBUG_ENTRY
 
 	assert(m_nHandle == -1);
-	m_nHandle = Network::Get()->TcpBegin(80);
+	m_nHandle = net::tcp_begin(80, Input);
 	assert(m_nHandle != -1);
 
 	for (uint32_t nIndex = 0; nIndex < TCP_MAX_TCBS_ALLOWED; nIndex++) {
-		pHandleRequest[nIndex] = new HttpDeamonHandleRequest(nIndex, m_nHandle);
-		assert(pHandleRequest[nIndex] != nullptr);
+		new (&handleRequest[nIndex]) HttpDeamonHandleRequest(nIndex, m_nHandle);
 	}
 
-	assert(MDNS::Get() != nullptr);
-	MDNS::Get()->ServiceRecordAdd(nullptr, mdns::Services::HTTP);
+	mdns_service_record_add(nullptr, mdns::Services::HTTP);
 
 	DEBUG_EXIT
 }
@@ -56,15 +59,14 @@ HttpDaemon::HttpDaemon() {
 HttpDaemon::~HttpDaemon() {
 	DEBUG_ENTRY
 
-	MDNS::Get()->ServiceRecordDelete(mdns::Services::HTTP);
+	mdns_service_record_delete(mdns::Services::HTTP);
 
 	for (uint32_t nIndex = 0; nIndex < TCP_MAX_TCBS_ALLOWED; nIndex++) {
-		if (pHandleRequest[nIndex] != nullptr) {
-			delete pHandleRequest[nIndex];
-		}
+		// Explicitly calling the destructor because objects were constructed with placement new.
+		handleRequest[nIndex].~HttpDeamonHandleRequest();
 	}
 
-	Network::Get()->TcpEnd(m_nHandle);
+	net::tcp_end(m_nHandle);
 
 	DEBUG_EXIT
 }

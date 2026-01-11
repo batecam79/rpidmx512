@@ -2,7 +2,7 @@
  * @file ltcgenerator.cpp
  *
  */
-/* Copyright (C) 2022-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2022-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,12 +23,22 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_ARM_LTCGENERATOR)
+# undef NDEBUG
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC push_options
+# pragma GCC optimize ("O2")
+# pragma GCC optimize ("no-tree-loop-distribute-patterns")
+#endif
+
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <cassert>
 
-#include "ltcgenerator.h"
+#include "arm/ltcgenerator.h"
 #include "ltc.h"
 #include "timecodeconst.h"
 
@@ -37,12 +47,11 @@
 
 // Output
 #include "artnetnode.h"
-#include "rtpmidi.h"
 #include "ltcetc.h"
 #include "ltcsender.h"
-#include "ltcoutputs.h"
+#include "arm/ltcoutputs.h"
 
-#include "platform_ltc.h"
+#include "arm/platform_ltc.h"
 
 #include "debug.h"
 
@@ -55,50 +64,41 @@
 # define BUTTON2_GPIO		GPIO_EXT_7		// PA6 Resume
 
 # define BUTTONS_MASK		((1 << BUTTON0_GPIO) |  (1 << BUTTON1_GPIO) | (1 << BUTTON2_GPIO))
-
-# if defined (H3)
-# else
-#  error
-# endif
 #endif
 
 #if defined (H3)
-static void irq_timer0_handler(__attribute__((unused)) uint32_t clo) {
-	if (!g_ltc_ptLtcDisabledOutputs.bLtc) {
-		LtcSender::Get()->SetTimeCode(static_cast<const struct ltc::TimeCode*>(&g_ltc_LtcTimeCode), false);
-	}
-
+static void irq_timer0_handler([[maybe_unused]] uint32_t clo) {
 	gv_ltc_bTimeCodeAvailable = true;
 }
 #elif defined (GD32)
 	// Defined in platform_ltc.cpp
 #endif
 
-namespace cmd {
-static constexpr char START[] = "start";
-static constexpr char STOP[] = "stop";
-static constexpr char RESUME[] = "resume";
-static constexpr char RATE[] = "rate#";
-static constexpr char DIRECTION[] = "direction#";
-static constexpr char PITCH[] = "pitch#";
-static constexpr char FORWARD[] = "forward#";
-static constexpr char BACKWARD[] = "backward#";
-}
+static constexpr char CMD_START[] = "start";
+static constexpr auto START_LENGTH = sizeof(CMD_START) - 1;
 
-namespace length {
-static constexpr auto START = sizeof(cmd::START) - 1;
-static constexpr auto STOP = sizeof(cmd::STOP) - 1;
-static constexpr auto RESUME = sizeof(cmd::RESUME) - 1;
-static constexpr auto RATE = sizeof(cmd::RATE) - 1;
-static constexpr auto DIRECTION = sizeof(cmd::DIRECTION) - 1;
-static constexpr auto PITCH = sizeof(cmd::PITCH) - 1;
-static constexpr auto FORWARD = sizeof(cmd::FORWARD) - 1;
-static constexpr auto BACKWARD = sizeof(cmd::BACKWARD) - 1;
-}
+static constexpr char CMD_STOP[] = "stop";
+static constexpr auto STOP_LENGTH = sizeof(CMD_STOP) - 1;
 
-namespace udp {
-static constexpr auto PORT = 0x5443;
-}
+static constexpr char CMD_RESUME[] = "resume";
+static constexpr auto RESUME_LENGTH = sizeof(CMD_RESUME) - 1;
+
+static constexpr char CMD_RATE[] = "rate#";
+static constexpr auto RATE_LENGTH = sizeof(CMD_RATE) - 1;
+
+static constexpr char CMD_DIRECTION[] = "direction#";
+static constexpr auto DIRECTION_LENGTH = sizeof(CMD_DIRECTION) - 1;
+
+static constexpr char CMD_PITCH[] = "pitch#";
+static constexpr auto PITCH_LENGTH = sizeof(CMD_PITCH) - 1;
+
+static constexpr char CMD_FORWARD[] = "forward#";
+static constexpr auto FORWARD_LENGTH = sizeof(CMD_FORWARD) - 1;
+
+static constexpr char CMD_BACKWARD[] = "backward#";
+static constexpr auto BACKWARD_LENGTH = sizeof(CMD_BACKWARD) - 1;
+
+static constexpr auto UDP_PORT = 0x5443;
 
 static int32_t atoi(const char *pBuffer, uint32_t nSize) {
 	assert(pBuffer != nullptr);
@@ -124,13 +124,12 @@ static int32_t atoi(const char *pBuffer, uint32_t nSize) {
 	return sign * res;
 }
 
-char *LtcGenerator::s_pUdpBuffer;
-LtcGenerator *LtcGenerator::s_pThis;
-
-LtcGenerator::LtcGenerator(const struct ltc::TimeCode* pStartLtcTimeCode, const struct ltc::TimeCode* pStopLtcTimeCode, bool bSkipFree):
+LtcGenerator::LtcGenerator(const struct ltc::TimeCode* pStartLtcTimeCode, const struct ltc::TimeCode* pStopLtcTimeCode, bool bSkipFree, bool bIgnoreStart, bool bIgnoreStop):
 	m_pStartLtcTimeCode(const_cast<struct ltc::TimeCode*>(pStartLtcTimeCode)),
 	m_pStopLtcTimeCode(const_cast<struct ltc::TimeCode*>(pStopLtcTimeCode)),
 	m_bSkipFree(bSkipFree),
+	m_bIgnoreStart(bIgnoreStart),
+	m_bIgnoreStop(bIgnoreStop),
 	m_nStartSeconds(GetSeconds(*m_pStartLtcTimeCode)),
 	m_nStopSeconds(GetSeconds(*m_pStopLtcTimeCode))
 {
@@ -145,7 +144,6 @@ LtcGenerator::LtcGenerator(const struct ltc::TimeCode* pStartLtcTimeCode, const 
 	memcpy(&g_ltc_LtcTimeCode, pStartLtcTimeCode, sizeof(struct ltc::TimeCode));
 
 	m_nFps = TimeCodeConst::FPS[pStartLtcTimeCode->nType];
-	m_nTimer0Interval = TimeCodeConst::TMR_INTV[pStartLtcTimeCode->nType];
 
 	if (m_pStartLtcTimeCode->nFrames >= m_nFps) {
 		m_pStartLtcTimeCode->nFrames = static_cast<uint8_t>(m_nFps - 1);
@@ -180,40 +178,24 @@ void LtcGenerator::Start() {
 # endif
 #endif
 
-	m_nHandle = Network::Get()->Begin(udp::PORT);
-	assert(m_nHandle != -1);
+	const auto nType = static_cast<uint32_t>(ltc::g_Type);
 
 #if defined (H3)
-	irq_timer_init();
+	irq_handler_init();
 	irq_timer_set(IRQ_TIMER_0, static_cast<thunk_irq_timer_t>(irq_timer0_handler));
 
-	H3_TIMER->TMR0_INTV = m_nTimer0Interval;
+	H3_TIMER->TMR0_INTV = TimeCodeConst::TMR_INTV[nType];
 	H3_TIMER->TMR0_CTRL &= ~(TIMER_CTRL_SINGLE_MODE);
 	H3_TIMER->TMR0_CTRL |= (TIMER_CTRL_EN_START | TIMER_CTRL_RELOAD);
 #elif defined (GD32)
 	platform::ltc::timer11_config();
-	TIMER_CH0CV(TIMER11) = m_nTimer0Interval;
+	platform::ltc::timer11_set_type(nType);
 #endif
 
+	m_nHandle = Network::Get()->Begin(UDP_PORT, StaticCallbackFunction);
+	assert(m_nHandle != -1);
+
 	LtcOutputs::Get()->Init();
-
-	if (!g_ltc_ptLtcDisabledOutputs.bLtc) {
-		LtcSender::Get()->SetTimeCode(const_cast<const struct ltc::TimeCode*>(&g_ltc_LtcTimeCode), false);
-	}
-
-	if (!g_ltc_ptLtcDisabledOutputs.bArtNet) {
-		ArtNetNode::Get()->SendTimeCode(reinterpret_cast<const struct TArtNetTimeCode*>(&g_ltc_LtcTimeCode));
-	}
-
-	if (!g_ltc_ptLtcDisabledOutputs.bRtpMidi) {
-		RtpMidi::Get()->SendTimeCode(reinterpret_cast<const struct midi::Timecode *>(&g_ltc_LtcTimeCode));
-	}
-
-	if (!g_ltc_ptLtcDisabledOutputs.bEtc) {
-		LtcEtc::Get()->Send(reinterpret_cast<const struct midi::Timecode *>(&g_ltc_LtcTimeCode));
-	}
-
-	LtcOutputs::Get()->Update(const_cast<const struct ltc::TimeCode*>(&g_ltc_LtcTimeCode));
 
 	Hardware::Get()->SetMode(hardware::ledblink::Mode::NORMAL);
 
@@ -229,7 +211,7 @@ void LtcGenerator::Stop() {
 #elif defined (GD32)
 #endif
 
-	m_nHandle = Network::Get()->End(udp::PORT);
+	m_nHandle = Network::Get()->End(UDP_PORT);
 
 	DEBUG_EXIT
 }
@@ -307,9 +289,9 @@ void LtcGenerator::ActionSetDirection(const char *pTimeCodeDirection) {
 	DEBUG_ENTRY
 
 	if (memcmp("forward", pTimeCodeDirection, 7) == 0) {
-		m_tDirection = LTC_GENERATOR_FORWARD;
+		m_tDirection = ltcgenerator::Direction::DIRECTION_FORWARD;
 	} else if (memcmp("backward", pTimeCodeDirection, 8) == 0) {
-		m_tDirection = LTC_GENERATOR_BACKWARD;
+		m_tDirection = ltcgenerator::Direction::DIRECTION_BACKWARD;
 	}
 
 	DEBUG_PRINTF("m_tDirection=%d", m_tDirection);
@@ -325,13 +307,13 @@ void LtcGenerator::ActionSetPitch(float fTimeCodePitch) {
 	}
 
 	if (fTimeCodePitch < 0) {
-		m_tPitch = LTC_GENERATOR_SLOWER;
+		m_tPitch = ltcgenerator::Pitch::PITCH_SLOWER;
 		m_fPitchControl = -fTimeCodePitch;
 	} else if (fTimeCodePitch == 0) {
-		m_tPitch = LTC_GENERATOR_NORMAL;
+		m_tPitch = ltcgenerator::Pitch::PITCH_NORMAL;
 		return;
 	} else {
-		m_tPitch = LTC_GENERATOR_FASTER;
+		m_tPitch = ltcgenerator::Pitch::PITCH_FASTER;
 		m_fPitchControl = fTimeCodePitch;
 	}
 
@@ -357,51 +339,47 @@ void LtcGenerator::ActionSetRate(const char *pTimeCodeRate) {
 	DEBUG_ENTRY
 
 	uint8_t nFps;
-	ltc::Type type;
 
-	if ((m_State == STOPPED) && (ltc::parse_timecode_rate(pTimeCodeRate, nFps, type))) {
+	if ((m_State == STOPPED) && (ltc::parse_timecode_rate(pTimeCodeRate, nFps))) {
 		if (nFps != m_nFps) {
-			const auto nType = static_cast<uint8_t>(type);
 			m_nFps = nFps;
-			//
+
+			const auto nType = static_cast<uint8_t>(ltc::g_Type);
 			g_ltc_LtcTimeCode.nType = nType;
-			//
+
 			m_pStartLtcTimeCode->nType = nType;
+
 			if (m_pStartLtcTimeCode->nFrames >= m_nFps) {
 				m_pStartLtcTimeCode->nFrames = static_cast<uint8_t>(m_nFps - 1);
 			}
+
 			m_pStopLtcTimeCode->nType = nType;
+
 			if (m_pStopLtcTimeCode->nFrames >= m_nFps) {
 				m_pStopLtcTimeCode->nFrames = static_cast<uint8_t>(m_nFps - 1);
 			}
-			//
-			m_nTimer0Interval = TimeCodeConst::TMR_INTV[nType];
+
 #if defined (H3)
-			H3_TIMER->TMR0_INTV = m_nTimer0Interval;
+			H3_TIMER->TMR0_INTV = TimeCodeConst::TMR_INTV[nType];
 			H3_TIMER->TMR0_CTRL &= ~(TIMER_CTRL_SINGLE_MODE);
 			H3_TIMER->TMR0_CTRL |= (TIMER_CTRL_EN_START | TIMER_CTRL_RELOAD);
 #elif defined (GD32)
-			TIMER_CNT(TIMER11) = 0;
-			TIMER_CH0CV(TIMER11) = m_nTimer0Interval;
+			platform::ltc::timer11_set_type(nType);
 #endif
-			//
-			if (!g_ltc_ptLtcDisabledOutputs.bLtc) {
-				LtcSender::Get()->SetTimeCode(const_cast<const struct ltc::TimeCode*>(&g_ltc_LtcTimeCode), false);
+
+			if (ltc::Destination::IsEnabled(ltc::Destination::Output::LTC)) {
+				LtcSender::Get()->SetTimeCode(const_cast<const struct ltc::TimeCode *>(&g_ltc_LtcTimeCode), false);
 			}
 
-			if (!g_ltc_ptLtcDisabledOutputs.bArtNet) {
-				ArtNetNode::Get()->SendTimeCode(reinterpret_cast<const struct TArtNetTimeCode*>(&g_ltc_LtcTimeCode));
+			if (ltc::Destination::IsEnabled(ltc::Destination::Output::ARTNET)) {
+				ArtNetNode::Get()->SendTimeCode(reinterpret_cast<const struct artnet::TimeCode *>(&g_ltc_LtcTimeCode));
 			}
 
-			if (!g_ltc_ptLtcDisabledOutputs.bRtpMidi) {
-				RtpMidi::Get()->SendTimeCode(reinterpret_cast<const struct midi::Timecode *>(&g_ltc_LtcTimeCode));
-			}
-
-			if (!g_ltc_ptLtcDisabledOutputs.bEtc) {
+			if (ltc::Destination::IsEnabled(ltc::Destination::Output::ETC)) {
 				LtcEtc::Get()->Send(reinterpret_cast<const struct midi::Timecode *>(&g_ltc_LtcTimeCode));
 			}
 
-			LtcOutputs::Get()->Update(const_cast<const struct ltc::TimeCode*>(&g_ltc_LtcTimeCode));
+			LtcOutputs::Get()->Update(const_cast<const struct ltc::TimeCode *>(&g_ltc_LtcTimeCode));
 		}
 	}
 
@@ -459,7 +437,7 @@ void LtcGenerator::ActionBackward(int32_t nSeconds) {
 
 void LtcGenerator::SetPitch(const char *pTimeCodePitch, uint32_t nSize) {
 	DEBUG_ENTRY
-	debug_dump(const_cast<char*>(pTimeCodePitch), static_cast<uint16_t>(nSize));
+	debug_dump(pTimeCodePitch, nSize);
 
 	const auto f = static_cast<float>(atoi(pTimeCodePitch, nSize)) / 100;
 
@@ -470,15 +448,15 @@ void LtcGenerator::SetPitch(const char *pTimeCodePitch, uint32_t nSize) {
 	DEBUG_EXIT
 }
 
-void LtcGenerator::SetSkip(const char *pSeconds, uint32_t nSize, TLtcGeneratorDirection tDirection) {
+void LtcGenerator::SetSkip(const char *pSeconds, uint32_t nSize, ltcgenerator::Direction direction) {
 	DEBUG_ENTRY
-	debug_dump(const_cast<char*>(pSeconds), static_cast<uint16_t>(nSize));
+	debug_dump(pSeconds, nSize);
 
 	const auto nSeconds = atoi(pSeconds, nSize);
 
 	DEBUG_PRINTF("nSeconds=%d", nSeconds);
 
-	if (tDirection == LTC_GENERATOR_FORWARD) {
+	if (direction == ltcgenerator::Direction::DIRECTION_FORWARD) {
 		ActionForward(nSeconds);
 	} else {
 		ActionBackward(nSeconds);
@@ -487,45 +465,49 @@ void LtcGenerator::SetSkip(const char *pSeconds, uint32_t nSize, TLtcGeneratorDi
 	DEBUG_EXIT
 }
 
-void LtcGenerator::HandleRequest(char *pBuffer, uint16_t nBufferLength) {
+void LtcGenerator::HandleRequest(char *pBuffer, uint32_t nBufferLength) {
 	if (pBuffer != nullptr) {
 		assert(nBufferLength >= 8);
-		s_pUdpBuffer = pBuffer;
+		m_pUdpBuffer = pBuffer;
 		m_nBytesReceived = nBufferLength;
 	}
 
-	if (__builtin_expect((memcmp("ltc!", s_pUdpBuffer, 4) != 0), 0)) {
+	if (m_nBytesReceived < 8) {
 		return;
 	}
 
-	if (s_pUdpBuffer[m_nBytesReceived - 1] == '\n') {
+	if (__builtin_expect((memcmp("ltc!", m_pUdpBuffer, 4) != 0), 0)) {
+		return;
+	}
+
+	if (m_pUdpBuffer[m_nBytesReceived - 1] == '\n') {
 		DEBUG_PUTS("\'\\n\'");
 		m_nBytesReceived--;
 	}
 
-	debug_dump(s_pUdpBuffer, m_nBytesReceived);
+	debug_dump(m_pUdpBuffer, m_nBytesReceived);
 
-	if (memcmp(&s_pUdpBuffer[4], cmd::START, length::START) == 0) {
-		if (m_nBytesReceived == (4 + length::START)) {
+	if (memcmp(&m_pUdpBuffer[4], CMD_START, START_LENGTH) == 0) {
+		if (m_nBytesReceived == (4 + START_LENGTH)) {
 			ActionStart();
 			return;
 		}
 
-		if (m_nBytesReceived == (4 + length::START + 1 + ltc::timecode::CODE_MAX_LENGTH)) {
-			if (s_pUdpBuffer[4 + length::START] == '#') {
-				ActionSetStart(&s_pUdpBuffer[(4 + length::START + 1)]);
+		if (m_nBytesReceived == (4 + START_LENGTH + 1 + ltc::timecode::CODE_MAX_LENGTH)) {
+			if (m_pUdpBuffer[4 + START_LENGTH] == '#') {
+				ActionSetStart(&m_pUdpBuffer[(4 + START_LENGTH + 1)]);
 				return;
 			}
 
-			if (s_pUdpBuffer[4 + length::START] == '!') {
-				ActionSetStart(&s_pUdpBuffer[(4 + length::START + 1)]);
+			if (m_pUdpBuffer[4 + START_LENGTH] == '!') {
+				ActionSetStart(&m_pUdpBuffer[(4 + START_LENGTH + 1)]);
 				ActionStop();
 				ActionStart();
 				return;
 			}
 
-			if (s_pUdpBuffer[4 + length::START] == '@') {
-				ActionGoto(&s_pUdpBuffer[(4 + length::START + 1)]);
+			if (m_pUdpBuffer[4 + START_LENGTH] == '@') {
+				ActionGoto(&m_pUdpBuffer[(4 + START_LENGTH + 1)]);
 				return;
 			}
 		}
@@ -534,14 +516,14 @@ void LtcGenerator::HandleRequest(char *pBuffer, uint16_t nBufferLength) {
 		return;
 	}
 
-	if (memcmp(&s_pUdpBuffer[4], cmd::STOP, length::STOP) == 0) {
-		if (m_nBytesReceived == (4 + length::STOP)) {
+	if (memcmp(&m_pUdpBuffer[4], CMD_STOP, STOP_LENGTH) == 0) {
+		if (m_nBytesReceived == (4 + STOP_LENGTH)) {
 			ActionStop();
 			return;
 		}
 
-		if ((m_nBytesReceived == (4 + length::STOP + 1 + ltc::timecode::CODE_MAX_LENGTH))  && (s_pUdpBuffer[4 + length::STOP] == '#')) {
-			ActionSetStop(&s_pUdpBuffer[(4 + length::STOP + 1)]);
+		if ((m_nBytesReceived == (4 + STOP_LENGTH + 1 + ltc::timecode::CODE_MAX_LENGTH))  && (m_pUdpBuffer[4 + STOP_LENGTH] == '#')) {
+			ActionSetStop(&m_pUdpBuffer[(4 + STOP_LENGTH + 1)]);
 			return;
 		}
 
@@ -549,42 +531,42 @@ void LtcGenerator::HandleRequest(char *pBuffer, uint16_t nBufferLength) {
 		return;
 	}
 
-	if (memcmp(&s_pUdpBuffer[4], cmd::RESUME, length::RESUME) == 0) {
+	if (memcmp(&m_pUdpBuffer[4], CMD_RESUME, RESUME_LENGTH) == 0) {
 		ActionResume();
 		return;
 	}
 
-	if (m_nBytesReceived == (4 + length::RATE + ltc::timecode::RATE_MAX_LENGTH)) {
-		if (memcmp(&s_pUdpBuffer[4], cmd::RATE, length::RATE) == 0) {
-			ActionSetRate(&s_pUdpBuffer[(4 + length::RATE)]);
+	if (m_nBytesReceived == (4 + RATE_LENGTH + ltc::timecode::RATE_MAX_LENGTH)) {
+		if (memcmp(&m_pUdpBuffer[4], CMD_RATE, RATE_LENGTH) == 0) {
+			ActionSetRate(&m_pUdpBuffer[(4 + RATE_LENGTH)]);
 			return;
 		}
 	}
 
-	if (m_nBytesReceived <= (4 + length::DIRECTION + 8)) {
-		if (memcmp(&s_pUdpBuffer[4], cmd::DIRECTION, length::DIRECTION) == 0) {
-			ActionSetDirection(&s_pUdpBuffer[(4 + length::DIRECTION)]);
+	if (m_nBytesReceived <= (4 + DIRECTION_LENGTH + 8)) {
+		if (memcmp(&m_pUdpBuffer[4], CMD_DIRECTION, DIRECTION_LENGTH) == 0) {
+			ActionSetDirection(&m_pUdpBuffer[(4 + DIRECTION_LENGTH)]);
 			return;
 		}
 	}
 
-	if (m_nBytesReceived <= (4 + length::PITCH + 4)) {
-		if (memcmp(&s_pUdpBuffer[4], cmd::PITCH, length::PITCH) == 0) {
-			SetPitch(&s_pUdpBuffer[(4 + length::PITCH)], m_nBytesReceived - (4 + length::PITCH));
+	if (m_nBytesReceived <= (4 + PITCH_LENGTH + 4)) {
+		if (memcmp(&m_pUdpBuffer[4], CMD_PITCH, PITCH_LENGTH) == 0) {
+			SetPitch(&m_pUdpBuffer[(4 + PITCH_LENGTH)], m_nBytesReceived - (4 + PITCH_LENGTH));
 			return;
 		}
 	}
 
-	if (m_nBytesReceived <= (4 + length::FORWARD + 2)) {
-		if (memcmp(&s_pUdpBuffer[4], cmd::FORWARD, length::FORWARD) == 0) {
-			SetSkip(&s_pUdpBuffer[(4 + length::FORWARD)], m_nBytesReceived - (4 + length::FORWARD), LTC_GENERATOR_FORWARD);
+	if (m_nBytesReceived <= (4 + FORWARD_LENGTH + 2)) {
+		if (memcmp(&m_pUdpBuffer[4], CMD_FORWARD, FORWARD_LENGTH) == 0) {
+			SetSkip(&m_pUdpBuffer[(4 + FORWARD_LENGTH)], m_nBytesReceived - (4 + FORWARD_LENGTH), ltcgenerator::Direction::DIRECTION_FORWARD);
 			return;
 		}
 	}
 
-	if (m_nBytesReceived <= (4 + length::BACKWARD + 2)) {
-		if (memcmp(&s_pUdpBuffer[4], cmd::BACKWARD, length::BACKWARD) == 0) {
-			SetSkip(&s_pUdpBuffer[(4 + length::BACKWARD)], m_nBytesReceived - (4 + length::BACKWARD), LTC_GENERATOR_BACKWARD);
+	if (m_nBytesReceived <= (4 + BACKWARD_LENGTH + 2)) {
+		if (memcmp(&m_pUdpBuffer[4], CMD_BACKWARD, BACKWARD_LENGTH) == 0) {
+			SetSkip(&m_pUdpBuffer[(4 + BACKWARD_LENGTH)], m_nBytesReceived - (4 + BACKWARD_LENGTH), ltcgenerator::Direction::DIRECTION_BACKWARD);
 			return;
 		}
 	}
@@ -592,15 +574,9 @@ void LtcGenerator::HandleRequest(char *pBuffer, uint16_t nBufferLength) {
 	DEBUG_PUTS("Invalid command");
 }
 
-void LtcGenerator::HandleUdpRequest() {
-	uint32_t nIPAddressFrom;
-	uint16_t nForeignPort;
-
-	m_nBytesReceived = Network::Get()->RecvFrom(m_nHandle, const_cast<const void **>(reinterpret_cast<void **>(&s_pUdpBuffer)), &nIPAddressFrom, &nForeignPort);
-
-	if (__builtin_expect((m_nBytesReceived < 8), 1)) {
-		return;
-	}
+void LtcGenerator::Input(const uint8_t *pBuffer, uint32_t nSize, [[maybe_unused]] uint32_t nFromIp, [[maybe_unused]] uint16_t nFromPort) {
+	m_pUdpBuffer = reinterpret_cast<char *>(const_cast<uint8_t *>(pBuffer));
+	m_nBytesReceived = nSize;
 
 	HandleRequest();
 }
@@ -637,61 +613,75 @@ void LtcGenerator::Print() {
 	printf(" Stop  : %.2d.%.2d.%.2d:%.2d\n", m_pStopLtcTimeCode->nHours, m_pStopLtcTimeCode->nMinutes, m_pStopLtcTimeCode->nSeconds, m_pStopLtcTimeCode->nFrames);
 }
 
-void LtcGenerator::Increment() {
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC push_options
+# pragma GCC optimize ("O3")
+# pragma GCC optimize ("no-tree-loop-distribute-patterns")
+#endif
 
-	if (__builtin_expect((memcmp(&g_ltc_LtcTimeCode, m_pStopLtcTimeCode, sizeof(struct ltc::TimeCode)) == 0), 0)) {
+void LtcGenerator::Increment() {
+	if ((!m_bIgnoreStop) && (__builtin_expect((memcmp(&g_ltc_LtcTimeCode, m_pStopLtcTimeCode, sizeof(struct ltc::TimeCode)) == 0), 0))) {
 		if (m_State == STARTED) {
 			m_State = LIMIT;
 		}
 		return;
 	}
 
-	if (__builtin_expect((m_State == STOPPED), 0)) {
-		return;
+	// Increment frames
+	g_ltc_LtcTimeCode.nFrames++;
+
+    // Drop-frame timecode handling BEFORE rolling to the next second
+	if (ltc::g_Type == ltc::Type::DF) {
+		// Skip frames 00 and 01 except every 10th minute
+		if ((g_ltc_LtcTimeCode.nMinutes % 10 != 0) && (g_ltc_LtcTimeCode.nSeconds == 0) && (g_ltc_LtcTimeCode.nFrames < 2)) {
+			g_ltc_LtcTimeCode.nFrames = 2;
+		}
 	}
 
-	g_ltc_LtcTimeCode.nFrames++;
-	if (m_nFps == g_ltc_LtcTimeCode.nFrames) {
+	// Handle frame rollover
+	if (g_ltc_LtcTimeCode.nFrames >= m_nFps) {
 		g_ltc_LtcTimeCode.nFrames = 0;
 
-		g_ltc_LtcTimeCode.nSeconds++;
-		if (g_ltc_LtcTimeCode.nSeconds == 60) {
+		// Increment seconds
+		if (++g_ltc_LtcTimeCode.nSeconds >= 60) {
 			g_ltc_LtcTimeCode.nSeconds = 0;
 
-			g_ltc_LtcTimeCode.nMinutes++;
-			if (g_ltc_LtcTimeCode.nMinutes == 60) {
+			// Increment minutes
+			if (++g_ltc_LtcTimeCode.nMinutes >= 60) {
 				g_ltc_LtcTimeCode.nMinutes = 0;
 
-				g_ltc_LtcTimeCode.nHours++;
-				if (g_ltc_LtcTimeCode.nHours == 24) {
+				// Increment hours
+				if (++g_ltc_LtcTimeCode.nHours >= 24) {
 					g_ltc_LtcTimeCode.nHours = 0;
 				}
 			}
 		}
 	}
-
-	//FIXME Add support for DF
 }
 
 void LtcGenerator::Decrement() {
-
-	if (__builtin_expect((memcmp(&g_ltc_LtcTimeCode, m_pStartLtcTimeCode, sizeof(struct ltc::TimeCode)) == 0), 0)) {
+	if ((!m_bIgnoreStart) && (__builtin_expect((memcmp(&g_ltc_LtcTimeCode, m_pStartLtcTimeCode, sizeof(struct ltc::TimeCode)) == 0), 0))) {
 		if (m_State == STARTED) {
 			m_State = LIMIT;
 		}
 		return;
 	}
 
-	if (__builtin_expect((m_State == STOPPED), 0)) {
-		return;
-	}
-
+	// Decrement frames
 	if (g_ltc_LtcTimeCode.nFrames > 0) {
 		g_ltc_LtcTimeCode.nFrames--;
 	} else {
 		g_ltc_LtcTimeCode.nFrames = static_cast<uint8_t>(m_nFps - 1);
 	}
 
+	// Handle drop-frame logic after frames decrement
+	if (ltc::g_Type == ltc::Type::DF) {
+		if ((g_ltc_LtcTimeCode.nMinutes % 10 != 0) &&  (g_ltc_LtcTimeCode.nSeconds == 0) &&  (g_ltc_LtcTimeCode.nFrames == m_nFps - 1)) {
+			g_ltc_LtcTimeCode.nFrames = 1; // Skip to frame 01
+		}
+	}
+
+	// Handle seconds rollover
 	if (g_ltc_LtcTimeCode.nFrames == m_nFps - 1) {
 		if (g_ltc_LtcTimeCode.nSeconds > 0) {
 			g_ltc_LtcTimeCode.nSeconds--;
@@ -699,24 +689,20 @@ void LtcGenerator::Decrement() {
 			g_ltc_LtcTimeCode.nSeconds = 59;
 		}
 
-		if (g_ltc_LtcTimeCode.nSeconds == 59) {
-			if (g_ltc_LtcTimeCode.nMinutes > 0) {
-				g_ltc_LtcTimeCode.nMinutes--;
-			} else {
-				g_ltc_LtcTimeCode.nMinutes = 59;
-			}
+		// Handle minutes rollover
+		if (g_ltc_LtcTimeCode.nMinutes > 0) {
+			g_ltc_LtcTimeCode.nMinutes--;
+		} else {
+			g_ltc_LtcTimeCode.nMinutes = 59;
+		}
 
-			if (g_ltc_LtcTimeCode.nMinutes == 59) {
-				if (g_ltc_LtcTimeCode.nHours > 0) {
-					g_ltc_LtcTimeCode.nHours--;
-				} else {
-					g_ltc_LtcTimeCode.nHours = 23;
-				}
-			}
+		// Handle hours rollover
+		if (g_ltc_LtcTimeCode.nHours > 0) {
+			g_ltc_LtcTimeCode.nHours--;
+		} else {
+			g_ltc_LtcTimeCode.nHours = 23;
 		}
 	}
-
-	//FIXME Add support for DF
 }
 
 bool LtcGenerator::PitchControl() {
@@ -730,41 +716,35 @@ bool LtcGenerator::PitchControl() {
 }
 
 void LtcGenerator::SetTimeCode(int32_t nSeconds) {
-	g_ltc_LtcTimeCode.nHours = static_cast<uint8_t>(nSeconds / 3600);
+	g_ltc_LtcTimeCode.nHours = static_cast<uint8_t>(nSeconds / 3600U);
 	nSeconds -= g_ltc_LtcTimeCode.nHours * 3600;
-	g_ltc_LtcTimeCode.nMinutes = static_cast<uint8_t>(nSeconds / 60);
+	g_ltc_LtcTimeCode.nMinutes = static_cast<uint8_t>(nSeconds / 60U);
 	nSeconds -= g_ltc_LtcTimeCode.nMinutes * 60;
 	g_ltc_LtcTimeCode.nSeconds = static_cast<uint8_t>(nSeconds);
 }
 
 void LtcGenerator::Update() {
-	if (m_State != STOPPED) {
-		LtcOutputs::Get()->UpdateMidiQuarterFrameMessage(const_cast<const struct ltc::TimeCode*>(&g_ltc_LtcTimeCode));
+	if (__builtin_expect((m_State == STOPPED), 0)) {
+		__DMB();  // Data memory barrier to ensure memory consistency
+		if (gv_ltc_bTimeCodeAvailable) {
+			gv_ltc_bTimeCodeAvailable = false;
+
+			if (ltc::Destination::IsEnabled(ltc::Destination::Output::LTC)) {
+				LtcSender::Get()->SetTimeCode(static_cast<const struct ltc::TimeCode *>(&g_ltc_LtcTimeCode), false);
+			}
+		}
+
+		return;
 	}
 
-	__DMB();
+	__DMB();  // Data memory barrier to ensure memory consistency
 	if (gv_ltc_bTimeCodeAvailable) {
 		gv_ltc_bTimeCodeAvailable = false;
-
-		if (!g_ltc_ptLtcDisabledOutputs.bArtNet) {
-			ArtNetNode::Get()->SendTimeCode(reinterpret_cast<const struct TArtNetTimeCode*>(&g_ltc_LtcTimeCode));
-		}
-
-		if (!g_ltc_ptLtcDisabledOutputs.bRtpMidi) {
-			RtpMidi::Get()->SendTimeCode(reinterpret_cast<const struct midi::Timecode *>(&g_ltc_LtcTimeCode));
-		}
-
-		if (!g_ltc_ptLtcDisabledOutputs.bEtc) {
-			LtcEtc::Get()->Send(reinterpret_cast<const struct midi::Timecode *>(&g_ltc_LtcTimeCode));
-		}
-
-		LtcOutputs::Get()->Update(static_cast<const struct ltc::TimeCode*>(&g_ltc_LtcTimeCode));
-
-		if (__builtin_expect((m_tDirection == LTC_GENERATOR_FORWARD), 1)) {
-			if (__builtin_expect((m_tPitch == LTC_GENERATOR_NORMAL), 1)) {
+		if (__builtin_expect((m_tDirection == ltcgenerator::Direction::DIRECTION_FORWARD), 1)) {
+			if (__builtin_expect((m_tPitch == ltcgenerator::Pitch::PITCH_NORMAL), 1)) {
 				Increment();
 			} else {
-				if (m_tPitch == LTC_GENERATOR_FASTER) {
+				if (m_tPitch == ltcgenerator::Pitch::PITCH_FASTER) {
 					Increment();
 					if (PitchControl()) {
 						Increment();
@@ -776,10 +756,10 @@ void LtcGenerator::Update() {
 				}
 			}
 		} else { // LTC_GENERATOR_BACKWARD
-			if (__builtin_expect((m_tPitch == LTC_GENERATOR_NORMAL), 1)) {
+			if (__builtin_expect((m_tPitch == ltcgenerator::Pitch::PITCH_NORMAL), 1)) {
 				Decrement();
 			} else {
-				if (m_tPitch == LTC_GENERATOR_FASTER) {
+				if (m_tPitch == ltcgenerator::Pitch::PITCH_FASTER) {
 					Decrement();
 					if (PitchControl()) {
 						Decrement();
@@ -791,18 +771,19 @@ void LtcGenerator::Update() {
 				}
 			}
 		}
-	}
-}
 
-void LtcGenerator::Run() {
-	Update();
+		if (ltc::Destination::IsEnabled(ltc::Destination::Output::LTC)) {
+			LtcSender::Get()->SetTimeCode(static_cast<const struct ltc::TimeCode *>(&g_ltc_LtcTimeCode), false);
+		}
 
-	HandleButtons();
-	HandleUdpRequest();
+		if (ltc::Destination::IsEnabled(ltc::Destination::Output::ARTNET)) {
+			ArtNetNode::Get()->SendTimeCode(reinterpret_cast<const struct artnet::TimeCode *>(&g_ltc_LtcTimeCode));
+		}
 
-	if (m_State == STARTED) {
-		Hardware::Get()->SetMode(hardware::ledblink::Mode::DATA);
-	} else {
-		Hardware::Get()->SetMode(hardware::ledblink::Mode::NORMAL);
+		if (ltc::Destination::IsEnabled(ltc::Destination::Output::ETC)) {
+			LtcEtc::Get()->Send(reinterpret_cast<const struct midi::Timecode *>(&g_ltc_LtcTimeCode));
+		}
+
+		LtcOutputs::Get()->Update(static_cast<const struct ltc::TimeCode *>(&g_ltc_LtcTimeCode));
 	}
 }

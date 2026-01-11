@@ -13,7 +13,7 @@
  *
  *	pusher command stuff added by Christopher Schardt 2017
  */
-/* Copyright (C) 2022 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2022-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -43,6 +43,7 @@
 #include "hardware.h"
 
 #include "lightsetdata.h"
+#include "lightset_data.h"
 
 #include "debug.h"
 
@@ -184,9 +185,8 @@ void PixelPusher::Run() {
 //		DEBUG_PRINTF("nPortIndex=%u, m_nPortIndexLast=%u", nPortIndex, m_nPortIndexLast);
 
 		if (nPortIndex == m_nPortIndexLast) {
-//			DEBUG_PUTS("Output");
 			for (uint32_t nLightSetPortIndex = 0; nLightSetPortIndex < m_nPortIndexLast; nLightSetPortIndex++) {
-				lightset::Data::Output(m_pLightSet, nLightSetPortIndex);
+				lightset::data_output(m_pLightSet, nLightSetPortIndex);
 				lightset::Data::ClearLength(nLightSetPortIndex);
 			}
 		}
@@ -195,7 +195,7 @@ void PixelPusher::Run() {
 #endif
 }
 
-void PixelPusher::HandlePusherCommand(__attribute__((unused)) const uint8_t *pBuffer, __attribute__((unused)) uint32_t nSize) {
+void PixelPusher::HandlePusherCommand([[maybe_unused]] const uint8_t *pBuffer, [[maybe_unused]] uint32_t nSize) {
 	DEBUG_ENTRY
 	DEBUG_PRINTF("pBuffer=%p, nSize=%u", reinterpret_cast<const void *>(pBuffer), nSize);
 #if !defined(CONFIG_PP_16BITSTUFF)
@@ -207,7 +207,7 @@ void PixelPusher::HandlePusherCommand(__attribute__((unused)) const uint8_t *pBu
 #include <cstdio>
 
 void PixelPusher::Print() {
-	puts("PixelPusher:");
+	puts("PixelPusher");
 	printf(" Count             : %u\n", m_nCount);
 	printf(" Channels per pixel: %u\n", pp::configuration::CHANNELS_PER_PIXEL);
 	printf(" Active ports      : %u\n", m_nActivePorts);

@@ -2,7 +2,7 @@
  * @file pixelmulti_config.h
  *
  */
-/* Copyright (C) 2021-2022 by Arjan van Vught mailto:info@gd32-dmx.org
+/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,16 +28,25 @@
 
 #if defined (BOARD_GD32F207RG)
 # include "board_gd32f207rg.h"
-#elif defined (BOARD_GD32F207C_EVAL)
-# include "board_gd32f207c_eval.h"
 #elif defined (BOARD_GD32F407RE)
 # include "board_gd32f407re.h"
 #elif defined (BOARD_GD32F450VI)
 # include "board_gd32f450vi.h"
 #elif defined (BOARD_16X4U_PIXEL)
 # include "board_gd32f450vi.h"
+#elif defined (BOARD_GD32F470VG)
+# include "board_gd32f470vg.h"
+#elif defined (BOARD_GD32F207C_EVAL)
+# include "board_gd32f207c_eval.h"
+#elif defined (BOARD_GD32F470Z_EVAL)
+# include "board_gd32f470z_eval.h"
 #else
 # error Board is not supported
 #endif
+
+namespace pixel {
+static constexpr auto PORT_COUNT = __builtin_popcount(GPIO_PINx);
+static_assert(PORT_COUNT <= 16, "Too many ports");
+}  // namespace pixel
 
 #endif /* GPIO_PIXELMULTI_CONFIG_H_ */

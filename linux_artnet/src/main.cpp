@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2017-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2017-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,17 +26,13 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
-#include <ctype.h>
+#include <cctype>
+#include <signal.h>
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
 
 #include "display.h"
-
-#include "mdns.h"
-
-#include "httpd/httpd.h"
 
 #include "artnetnode.h"
 #include "artnetparams.h"
@@ -58,29 +54,36 @@
 #include "remoteconfig.h"
 #include "remoteconfigparams.h"
 
+#if defined (NODE_SHOWFILE)
+# include "showfile.h"
+# include "showfileparams.h"
+#endif
+
 #include "firmwareversion.h"
 #include "software_version.h"
 
 namespace artnetnode {
-namespace configstore {
-uint32_t DMXPORT_OFFSET = 0;
-}  // namespace configstore
+#if !defined(CONFIG_DMX_PORT_OFFSET)
+ static constexpr uint32_t DMXPORT_OFFSET = 0;
+#else
+ static constexpr uint32_t DMXPORT_OFFSET = CONFIG_DMX_PORT_OFFSET;
+#endif
 }  // namespace artnetnode
 
+static bool keepRunning = true;
+
+void intHandler(int) {
+    keepRunning = false;
+}
+
 int main(int argc, char **argv) {
-#ifndef NDEBUG
-	if (argc > 2) {
-		const int c = argv[2][0];
-		if (isdigit(c)){
-			artnetnode::configstore::DMXPORT_OFFSET = c - '0';
-		}
-	}
-#endif
+    struct sigaction act;
+    act.sa_handler = intHandler;
+    sigaction(SIGINT, &act, nullptr);
 	Hardware hw;
 	Display display;
 	ConfigStore configStore;
 	Network nw(argc, argv);
-	MDNS mDns;
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 
 	hw.Print();
@@ -116,8 +119,8 @@ int main(int argc, char **argv) {
 
 	for (uint32_t nPortIndex = 0; nPortIndex < artnetnode::MAX_PORTS; nPortIndex++) {
 		uint32_t nOffset = nPortIndex;
-		if (nPortIndex >= artnetnode::configstore::DMXPORT_OFFSET) {
-			nOffset = nPortIndex - artnetnode::configstore::DMXPORT_OFFSET;
+		if (nPortIndex >= artnetnode::DMXPORT_OFFSET) {
+			nOffset = nPortIndex - artnetnode::DMXPORT_OFFSET;
 		} else {
 			continue;
 		}
@@ -144,23 +147,35 @@ int main(int argc, char **argv) {
 	node.SetRdm(static_cast<uint32_t>(0), true);
 	node.Print();
 
+#if defined (NODE_SHOWFILE)
+	ShowFile showFile;
+
+	ShowFileParams showFileParams;
+	showFileParams.Load();
+	showFileParams.Set();
+
+	if (showFile.IsAutoStart()) {
+		showFile.Play();
+	}
+
+	showFile.Print();
+#endif
+
 	RemoteConfig remoteConfig(remoteconfig::Node::ARTNET, remoteconfig::Output::MONITOR, nActivePorts);
 
 	RemoteConfigParams remoteConfigParams;
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
 	node.Start();
 
-	for (;;) {
+	while (keepRunning) {
+		nw.Run();
 		node.Run();
-		mDns.Run();
-		remoteConfig.Run();
-		configStore.Flash();
+#if defined (NODE_SHOWFILE)
+		showFile.Run();
+#endif
+		hw.Run();
 	}
 
 	return 0;

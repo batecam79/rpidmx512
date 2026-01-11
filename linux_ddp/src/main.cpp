@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2021-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,17 +26,16 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <signal.h>
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
+
 
 #include "display.h"
 #include "displayudfparams.h"
 
-#include "mdns.h"
-
-#include "httpd/httpd.h"
+#include "net/apps/mdns.h"
 
 #include "ddpdisplay.h"
 
@@ -55,17 +54,23 @@
 
 #include "configstore.h"
 
-
-
 #include "firmwareversion.h"
 #include "software_version.h"
 
+static bool keepRunning = true;
+
+void intHandler(int) {
+    keepRunning = false;
+}
+
 int main(int argc, char **argv) {
+    struct sigaction act;
+    act.sa_handler = intHandler;
+    sigaction(SIGINT, &act, nullptr);
 	Hardware hw;
 	Display display;
 	ConfigStore configStore;
 	Network nw(argc, argv);
-	MDNS mDns;
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 
 	hw.Print();
@@ -110,7 +115,7 @@ int main(int argc, char **argv) {
 
 	llrpOnlyDevice.Print();
 
-	mDns.ServiceRecordAdd(nullptr, mdns::Services::RDMNET_LLRP, "node=RDMNet LLRP Only");
+	mdns_service_record_add(nullptr, mdns::Services::RDMNET_LLRP, "node=RDMNet LLRP Only");
 
 	ddpDisplay.Print();
 
@@ -120,18 +125,12 @@ int main(int argc, char **argv) {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
 	ddpDisplay.Start();
 
-	for (;;) {
+	while (keepRunning) {
+		nw.Run();
 		ddpDisplay.Run();
-		mDns.Run();
-		remoteConfig.Run();
-		llrpOnlyDevice.Run();
-		configStore.Flash();
+		hw.Run();
 	}
 
 	return 0;

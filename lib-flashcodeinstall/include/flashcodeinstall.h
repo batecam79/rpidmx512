@@ -2,7 +2,7 @@
  * @file flashcodeinstall.h
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,57 +29,9 @@
 #include <cstdint>
 #include <cstdio>
 
-#if defined (H3)
-// nuc-i5:~/uboot-spi/u-boot$ grep CONFIG_BOOTCOMMAND include/configs/sunxi-common.h
-// #define CONFIG_BOOTCOMMAND "sf probe; sf read 48000000 180000 22000; bootm 48000000"
-# define FIRMWARE_MAX_SIZE	0x22000			// 136K
-# define OFFSET_UBOOT_SPI	0x000000
-# define OFFSET_UIMAGE		0x180000
-#elif defined (GD32)
-# if defined (BOARD_GD32F107RC)
-#  define OFFSET_UIMAGE		0x007000		// 28K
-#  define FIRMWARE_MAX_SIZE (74 * 1024)		// 74K
-# elif defined (BOARD_GD32F207RG)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (234 * 1024)	// 234K
-# elif defined (BOARD_GD32F207VC_2)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (108 * 1024)	// 108K
-# elif defined (BOARD_GD32F207VC_4)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (108 * 1024)	// 108K
-# elif defined (BOARD_GD32F207C_EVAL)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (106 * 1024)	// 106K
-# elif defined (BOARD_GD32F407RE)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (106 * 1024)	// 106K
-# elif defined (BOARD_BW_OPIDMX4)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (106 * 1024)	// 106K
-# elif defined (BOARD_DMX3)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (106 * 1024)	// 106K
-# elif defined (BOARD_DMX4)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (106 * 1024)	// 106K
-# elif defined (BOARD_GD32F450VE)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (168 * 1024)	// 168K
-# elif defined (BOARD_GD32F450VI)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (224 * 1024)	// 224K
-# elif defined (BOARD_16X4U_PIXEL)
-#  define OFFSET_UIMAGE		0x008000		// 32K
-#  define FIRMWARE_MAX_SIZE (224 * 1024)	// 224K
-# endif
-#else
-# define OFFSET_UIMAGE		0x0
-#endif
-
-#ifdef __cplusplus
-
 #include "flashcode.h"
+
+#include "firmware.h" //TODO Remove
 
 class FlashCodeInstall: FlashCode {
 public:
@@ -111,6 +63,5 @@ private:
 
 	static FlashCodeInstall *s_pThis;
 };
-#endif
 
 #endif /* FLASHCODEINSTALL_H_ */

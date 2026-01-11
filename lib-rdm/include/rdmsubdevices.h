@@ -40,15 +40,15 @@
 #include "debug.h"
 
 #if defined (NODE_RDMNET_LLRP_ONLY)
-# undef ENABLE_RDM_SUBDEVICES
+# undef CONFIG_RDM_ENABLE_SUBDEVICES
 #endif
 
-namespace rdm {
-namespace subdevices {
+
+namespace rdm::subdevices {
 static constexpr auto MAX = 8;
 static constexpr auto STORE = 96;	///< Configuration store in bytes
-}  // namespace subdevices
-}  // namespace rdm
+} // namespace rdm::subdevices
+
 
 class RDMSubDevices {
 public:
@@ -57,7 +57,7 @@ public:
 		assert(s_pThis == nullptr);
 		s_pThis = this;
 
-#if defined(ENABLE_RDM_SUBDEVICES)
+#if defined(CONFIG_RDM_ENABLE_SUBDEVICES)
 		m_pRDMSubDevice = new RDMSubDevice*[rdm::subdevices::MAX];
 		assert(m_pRDMSubDevice != nullptr);
 
@@ -82,15 +82,15 @@ public:
 	}
 
 #undef UNUSED
-#if defined (ENABLE_RDM_SUBDEVICES)
+#if defined (CONFIG_RDM_ENABLE_SUBDEVICES)
 # define UNUSED
 #else
-# define UNUSED  __attribute__((unused))
+# define UNUSED  [[maybe_unused]]
 #endif
 
 	bool Add(UNUSED RDMSubDevice *pRDMSubDevice) {
 		DEBUG_ENTRY
-#if defined(ENABLE_RDM_SUBDEVICES)
+#if defined(CONFIG_RDM_ENABLE_SUBDEVICES)
 		assert(m_pRDMSubDevice != nullptr);
 
 		if (m_pRDMSubDevice == nullptr) {

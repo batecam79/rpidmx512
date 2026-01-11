@@ -2,7 +2,7 @@
  * @file h3.h
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +25,16 @@
 
 #ifndef H3_H_
 #define H3_H_
+
+#if defined(__GNUC__) && !defined(__clang__)
+# ifdef __cplusplus
+#  if __cplusplus > 201402
+#   pragma GCC diagnostic push
+// error: compound assignment with 'volatile'-qualified left operand is deprecated
+#   pragma GCC diagnostic ignored "-Wvolatile"
+#  endif
+# endif
+#endif
 
 #ifdef __cplusplus
 # define _CAST(x)	reinterpret_cast<x>
@@ -155,10 +165,12 @@ typedef enum T_H3_IRQn {
 	H3_UART2_IRQn = 34,
 	H3_UART3_IRQn = 35,
 	H3_PA_EINT_IRQn = 43,
+	H3_PG_EINT_IRQn = 49,
 	H3_TIMER0_IRQn = 50,
 	H3_TIMER1_IRQn = 51,
 	H3_AUDIO_CODEC_IRQn = 61,
-	H3_DMA_IRQn = 82
+	H3_DMA_IRQn = 82,
+	H3_HSTIMER_IRQn = 83
 } H3_IRQn_TypeDef;
 
 #ifdef __ASSEMBLY__
@@ -582,7 +594,9 @@ typedef struct T_H3_EMAC {
 	__I uint32_t RES2[2];			///< 0x2C, 0x30
 	__IO uint32_t RX_DMA_DESC;		///< 0x34
 	__IO uint32_t RX_FRM_FLT;		///< 0x38
-	__I uint32_t RES3[3];			///< 0x3C, 0x40, 0x44
+	__I uint32_t RES3;				///< 0x3C
+	__IO uint32_t RX_HASH_0;	 	///< 0x40
+	__IO uint32_t RX_HASH_1;	 	///< 0x44
 	__IO uint32_t MII_CMD;			///< 0x48
 	__IO uint32_t MII_DATA;			///< 0x4C
 	struct {
@@ -807,7 +821,28 @@ extern void h3_dump_memory_mapping(void);
 #  define UDELAY
  void udelay(uint32_t us, uint32_t offset = 0);
 # endif
-#endif
+#endif //
 
 #endif
+
+#define GIC_DISTRIBUTOR_BASE	H3_GIC_DIST_BASE
+#define GIC_INTERFACE_BASE		H3_GIC_CPUIF_BASE
+#define IRQn_Type				H3_IRQn_TypeDef
+
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC diagnostic ignored "-Wconversion"
+# pragma GCC diagnostic ignored "-Wsign-conversion"
+# ifdef __cplusplus
+#  pragma GCC diagnostic ignored "-Wold-style-cast"
+# endif
+#endif
+#include "core_ca.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "irq_ctrl.h"
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* H3_H_ */

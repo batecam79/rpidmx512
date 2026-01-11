@@ -2,7 +2,7 @@
  * @file display.cpp
  *
  */
-/* Copyright (C) 2017-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2017-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,27 +23,39 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_DISPLAY)
+# undef NDEBUG
+#endif
+
 #include <cstdint>
 #include <cassert>
 
 #include "display.h"
 #include "displayset.h"
 
-#if defined(CONFIG_DISPLAY_ENABLE_HD44780)
-# include "i2c/hd44780.h"
-#endif
 #include "i2c/ssd1306.h"
 #if defined(CONFIG_DISPLAY_ENABLE_SSD1311)
 # include "i2c/ssd1311.h"
 #endif
-
-#include "display7segment.h"
+#if defined(CONFIG_DISPLAY_ENABLE_HD44780)
+# include "i2c/hd44780.h"
+#endif
 
 #include "hal_i2c.h"
+#include "hal_gpio.h"
 
-Display *Display::s_pThis;
+namespace display::timeout {
+void irq_init();
+static void gpio_init() {
+#if defined (DISPLAYTIMEOUT_GPIO)
+	FUNC_PREFIX(gpio_fsel(DISPLAYTIMEOUT_GPIO, GPIO_FSEL_INPUT));
+	FUNC_PREFIX(gpio_set_pud(DISPLAYTIMEOUT_GPIO, GPIO_PULL_UP));
+	irq_init();
+#endif
+}
+}  // namespace display::timeout
 
-Display::Display() : m_nMillis(Hardware::Get()->Millis()), m_I2C(display::segment7::I2C_ADDRESS) {
+Display::Display() : m_I2C(display::segment7::I2C_ADDRESS) {
 	assert(s_pThis == nullptr);
 	s_pThis = this;
 
@@ -55,8 +67,6 @@ Display::Display() : m_nMillis(Hardware::Get()->Millis()), m_I2C(display::segmen
 		Detect(display::Type::SSD1306);
 	}
 
-	Detect7Segment();
-
 	if (m_LcdDisplay != nullptr) {
 		display::timeout::gpio_init();
 	}
@@ -64,14 +74,12 @@ Display::Display() : m_nMillis(Hardware::Get()->Millis()), m_I2C(display::segmen
 	PrintInfo();
 }
 
-Display::Display(uint32_t nRows) : m_nMillis(Hardware::Get()->Millis()), m_I2C(display::segment7::I2C_ADDRESS) {
+Display::Display(uint32_t nRows) : m_I2C(display::segment7::I2C_ADDRESS) {
 	assert(s_pThis == nullptr);
 	s_pThis = this;
 
 	Detect(nRows);
 
-	Detect7Segment();
-
 	if (m_LcdDisplay != nullptr) {
 		display::timeout::gpio_init();
 	}
@@ -79,13 +87,11 @@ Display::Display(uint32_t nRows) : m_nMillis(Hardware::Get()->Millis()), m_I2C(d
 	PrintInfo();
 }
 
-Display::Display(display::Type type): m_tType(type), m_nMillis(Hardware::Get()->Millis()), m_I2C(display::segment7::I2C_ADDRESS) {
+Display::Display(display::Type type): m_tType(type), m_I2C(display::segment7::I2C_ADDRESS) {
 	assert(s_pThis == nullptr);
 	s_pThis = this;
 
 	Detect(type);
-
-	Detect7Segment();
 
 	if (m_LcdDisplay != nullptr) {
 		display::timeout::gpio_init();

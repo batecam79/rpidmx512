@@ -2,7 +2,7 @@
  * @file gps.cpp
  *
  */
-/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,9 +29,6 @@
 #include <cstring>
 #include <cstdio>
 #include <time.h>
-#if !defined (BARE_METAL)
-# include <unistd.h>
-#endif
 #include <cassert>
 
 #include "gps.h"
@@ -39,13 +36,14 @@
 #include "utc.h"
 
 #include "hardware.h"
+#include "hal_api.h"
 
 #include "debug.h"
 
 // Maximum sentence length, including the $ and <CR><LF> is 82 bytes.
 
-namespace gps {
-namespace nmea{
+
+namespace gps::nmea{
 namespace length {
 static constexpr uint32_t TALKER_ID = 2;
 static constexpr uint32_t TAG = 3;
@@ -56,8 +54,8 @@ enum {
 	ZDA,
 	UNDEFINED
 };
-}  // namespace nmea
-}  // namespace gps
+} // namespace gps::nmea
+
 
 using namespace gps;
 
@@ -69,7 +67,7 @@ constexpr char aTag[static_cast<int>(nmea::UNDEFINED)][nmea::length::TAG] =
 
 GPS *GPS::s_pThis = nullptr;
 
-GPS::GPS(float fUtcOffset, GPSModule module): m_nUtcOffset(Utc::Validate(fUtcOffset)), m_tModule(module) {
+GPS::GPS(float fUtcOffset, GPSModule module): m_nUtcOffset(hal::utc_validate(fUtcOffset)), m_tModule(module) {
 	DEBUG_ENTRY
 	assert(s_pThis == nullptr);
 	s_pThis = this;
@@ -147,11 +145,7 @@ void GPS::Start() {
 
 	if (m_tModule < GPSModule::UNDEFINED) {
 		UartSend(GPSConst::BAUD_115200[static_cast<unsigned>(m_tModule)]);
-#if defined (BARE_METAL)
 		udelay(100*1000);
-#else
-		sleep(1);
-#endif
 		UartSetBaud(115200);
 		UartSend(GPSConst::BAUD_115200[static_cast<unsigned>(m_tModule)]);
 
@@ -237,7 +231,7 @@ void GPS::Run() {
 	}
 }
 
-void GPS::DumpSentence(__attribute__((unused)) const char *pSentence) {
+void GPS::DumpSentence([[maybe_unused]] const char *pSentence) {
 #ifndef NDEBUG
 	printf("%p |", pSentence);
 

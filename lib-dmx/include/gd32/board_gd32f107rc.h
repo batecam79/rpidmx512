@@ -26,14 +26,14 @@
 #ifndef GD32_BOARD_GD32F107RC_H_
 #define GD32_BOARD_GD32F107RC_H_
 
+#include <cstdint>
 #include "gd32_board.h"
 
-namespace max {
-static constexpr auto OUT = 1U;
-static constexpr auto IN = 1U;
-}
-
 #define DMX_MAX_PORTS  1
+
+namespace max {
+	static constexpr uint32_t PORTS = DMX_MAX_PORTS;
+}  // namespace max
 
 #define DMX_USE_USART2
 static constexpr auto USART2_PORT = 0;

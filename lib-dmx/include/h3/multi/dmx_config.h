@@ -2,7 +2,7 @@
  * @file dmx_config.h
  *
  */
-/* Copyright (C) 2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2023-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,27 +28,27 @@
 
 #include "h3_board.h"
 
-namespace dmx {
-namespace config {
-namespace max {
 #if defined(ORANGE_PI_ONE)
- static constexpr auto OUT = 4U;
- static constexpr auto IN = 4U;
+# define DMX_MAX_PORTS  4
 #else
- static constexpr auto OUT = 2U;
- static constexpr auto IN = 2U;
+# define DMX_MAX_PORTS	2
 #endif
-}  // namespace max
-}  // namespace config
-}  // namespace dmx
 
-namespace dmx {
-namespace buffer {
+
+
+namespace dmx::config::max {
+	static const uint32_t PORTS = DMX_MAX_PORTS;
+} // namespace dmx::config::max
+
+
+
+
+namespace dmx::buffer {
 static constexpr auto SIZE = 516;
 static constexpr auto INDEX_ENTRIES = (1U << 1);
 static constexpr auto INDEX_MASK = (INDEX_ENTRIES - 1);
-}  // namespace buffer
-}  // namespace dmx
+} // namespace dmx::buffer
+
 
 #if defined(ORANGE_PI_ONE)
 # define DMX_MAX_UARTS	4

@@ -2,7 +2,7 @@
  * @file network.h
  *
  */
-/* Copyright (C) 2017-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2017-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,7 +26,8 @@
 #ifndef LINUX_NETWORK_H_
 #define LINUX_NETWORK_H_
 
-#if defined (BARE_METAL)
+#if defined(__linux__) || defined (__APPLE__)
+#else
 # error
 #endif
 
@@ -35,6 +36,11 @@
 #include <net/if.h>
 
 #include "networkparams.h"
+
+namespace net {
+typedef void (*UdpCallbackFunctionPtr)(const uint8_t *, uint32_t, uint32_t, uint16_t);
+typedef void (*TcpCallbackFunctionPtr)(const int32_t, const uint8_t *, const uint32_t);
+}  // namespace net
 
 class Network {
 public:
@@ -45,7 +51,7 @@ public:
 
 	void Shutdown() {}
 
-	int32_t Begin(uint16_t nPort);
+	int32_t Begin(uint16_t nPort, net::UdpCallbackFunctionPtr callback = nullptr);
 	int32_t End(uint16_t nPort);
 
 	void MacAddressCopyTo(uint8_t *pMacAddress);
@@ -53,9 +59,9 @@ public:
 	void JoinGroup(int32_t nHandle, uint32_t nIp);
 	void LeaveGroup(int32_t nHandle, uint32_t nIp);
 
-	uint16_t RecvFrom(int32_t nHandle, void *pBuffer, uint16_t nLength, uint32_t *pFromIp, uint16_t *pFromPort);
-	uint16_t RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort);
-	void SendTo(int32_t nHandle, const void *pBuffer, uint16_t nLength, uint32_t nToIp, uint16_t nRemotePort);
+	uint32_t RecvFrom(int32_t nHandle, void *pBuffer, uint32_t nLength, uint32_t *pFromIp, uint16_t *pFromPort);
+	uint32_t RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort);
+	void SendTo(int32_t nHandle, const void *pBuffer, uint32_t nLength, uint32_t nToIp, uint16_t nRemotePort);
 
 	void SetIp(uint32_t nIp);
 	void SetNetmask(uint32_t nNetmask);
@@ -64,8 +70,20 @@ public:
 	void SetHostName(const char *pHostName);
 
 	void SetDomainName(const char *pDomainName) {
-		strncpy(m_aDomainName, pDomainName, network::DOMAINNAME_SIZE - 1);
-		m_aDomainName[network::DOMAINNAME_SIZE - 1] = '\0';
+		strncpy(m_aDomainName, pDomainName, net::DOMAINNAME_SIZE - 1);
+		m_aDomainName[net::DOMAINNAME_SIZE - 1] = '\0';
+	}
+
+	uint32_t GetNameServer(const uint32_t nIndex) const {
+		if (nIndex < net::NAMESERVERS_COUNT) {
+			return m_nNameservers[nIndex];
+		}
+
+		return 0;
+	}
+
+	uint32_t GetNameServers() const {
+		return net::NAMESERVERS_COUNT;
 	}
 
 	uint32_t GetSecondaryIp() const {
@@ -90,16 +108,6 @@ public:
 	bool EnableDhcp() {
 		return false;
 	}
-
-	void SetQueuedStaticIp(uint32_t nLocalIp = 0, uint32_t nNetmask = 0);
-	void SetQueuedDhcp() {
-		m_QueuedConfig.nMask |= QueuedConfig::DHCP;
-	}
-	void SetQueuedZeroconf() {
-		m_QueuedConfig.nMask |= QueuedConfig::ZEROCONF;
-	}
-
-	bool ApplyQueuedConfig();
 
 	uint32_t GetGatewayIp() const {
 		return m_nGatewayIp;
@@ -155,18 +163,6 @@ public:
 #endif
 	}
 
-	network::dhcp::Mode GetDhcpMode() const {
-		if (IsDhcpKnown()) {
-			if (m_IsDhcpUsed) {
-				return network::dhcp::Mode::ACTIVE;
-			}
-
-			return network::dhcp::Mode::INACTIVE;
-		}
-
-		return network::dhcp::Mode::UNKNOWN;
-	}
-
 	const char *GetIfName() const {
 		return m_aIfName;
 	}
@@ -191,14 +187,7 @@ public:
 		return s_pThis;
 	}
 
-	/*
-	 * Experimental TCP
-	 */
-
-	int32_t TcpBegin(uint16_t nLocalPort);
-	uint16_t TcpRead(const int32_t nHandle, const uint8_t **ppBuffer, uint32_t &HandleConnection);
-	void TcpWrite(const int32_t nHandle, const uint8_t *pBuffer, uint16_t nLength, const uint32_t HandleConnection);
-	int32_t TcpEnd(const int32_t nHandle);
+	void Run();
 
 private:
 	uint32_t GetDefaultGateway();
@@ -222,27 +211,11 @@ private:
 	uint32_t m_nGatewayIp { 0 };
 	uint32_t m_nNetmask { 0 };
 
-	char m_aHostName[network::HOSTNAME_SIZE];
-	char m_aDomainName[network::DOMAINNAME_SIZE];
-	uint8_t m_aNetMacaddr[network::MAC_SIZE];
+	char m_aHostName[net::HOSTNAME_SIZE];
+	char m_aDomainName[net::DOMAINNAME_SIZE];
+	uint32_t m_nNameservers[net::NAMESERVERS_COUNT];
+	uint8_t m_aNetMacaddr[net::MAC_SIZE];
 	char m_aIfName[IFNAMSIZ];
-
-	struct QueuedConfig {
-		static constexpr uint32_t NONE = 0;
-		static constexpr uint32_t STATIC_IP = (1U << 0);
-		static constexpr uint32_t NET_MASK = (1U << 1);
-		static constexpr uint32_t DHCP = (1U << 2);
-		static constexpr uint32_t ZEROCONF = (1U << 3);
-		uint32_t nMask = QueuedConfig::NONE;
-		uint32_t nLocalIp = 0;
-		uint32_t nNetmask = 0;
-	};
-
-	QueuedConfig m_QueuedConfig;
-
-    bool isQueuedMaskSet(uint32_t nMask) {
-    	return (m_QueuedConfig.nMask & nMask) == nMask;
-    }
 
 	static Network *s_pThis;
 };

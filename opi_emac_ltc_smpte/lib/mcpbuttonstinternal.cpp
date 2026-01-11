@@ -38,9 +38,10 @@
 void McpButtons::HandleInternalTimeCodeStart(struct ltc::TimeCode& StartTimeCode) {
 	displayEditTimeCode.HandleKey(m_nKey, StartTimeCode, m_aTimeCode);
 
-	if (!g_ltc_ptLtcDisabledOutputs.bMax7219) {
+//	if (!ltc::g_DisabledOutputs.bMax7219) {
+	if (ltc::Destination::IsEnabled(ltc::Destination::Output::MAX7219)) {
 		LtcDisplayMax7219::Get()->Show(m_aTimeCode);
-	} else if ((!g_ltc_ptLtcDisabledOutputs.bWS28xx) || (!g_ltc_ptLtcDisabledOutputs.bRgbPanel)) {
+	} else if (ltc::Destination::IsEnabled(ltc::Destination::Output::WS28XX) || ltc::Destination::IsEnabled(ltc::Destination::Output::RGBPANEL)) {
 		LtcDisplayRgb::Get()->Show(m_aTimeCode);
 	}
 
@@ -50,9 +51,10 @@ void McpButtons::HandleInternalTimeCodeStart(struct ltc::TimeCode& StartTimeCode
 void McpButtons::HandleInternalTimeCodeStop(struct ltc::TimeCode& StartTimeCode) {
 	displayEditTimeCode.HandleKey(m_nKey, StartTimeCode, m_aTimeCode);
 
-	if (!g_ltc_ptLtcDisabledOutputs.bMax7219) {
+//	if (!ltc::g_DisabledOutputs.bMax7219) {
+	if (ltc::Destination::IsEnabled(ltc::Destination::Output::MAX7219)) {
 		LtcDisplayMax7219::Get()->Show(m_aTimeCode);
-	} else if ((!g_ltc_ptLtcDisabledOutputs.bWS28xx) || (!g_ltc_ptLtcDisabledOutputs.bRgbPanel)) {
+	} else if (ltc::Destination::IsEnabled(ltc::Destination::Output::WS28XX) || ltc::Destination::IsEnabled(ltc::Destination::Output::RGBPANEL)) {
 		LtcDisplayRgb::Get()->Show(m_aTimeCode);
 	}
 

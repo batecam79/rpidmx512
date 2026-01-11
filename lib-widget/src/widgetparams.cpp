@@ -22,11 +22,6 @@
  * THE SOFTWARE.
  */
 
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
-#endif
-
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
@@ -58,7 +53,7 @@ void WidgetParams::Load() {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile configfile(WidgetParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(WidgetParams::StaticCallbackFunction, this);
 
 #if defined (WIDGET_HAVE_FLASHROM)
 # if !defined(DISABLE_FS)
@@ -141,7 +136,7 @@ void WidgetParams::Set() {
 	}
 }
 
-void WidgetParams::staticCallbackFunction(void* p, const char* s) {
+void WidgetParams::StaticCallbackFunction(void* p, const char* s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 

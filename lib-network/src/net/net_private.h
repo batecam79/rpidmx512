@@ -2,7 +2,7 @@
  * @file net_private.h
  *
  */
-/* Copyright (C) 2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2023-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,67 +28,64 @@
 
 #include <cstdint>
 
-#include "net_packets.h"
 #include "net_platform.h"
-#include "net_debug.h"
 
-#include "dhcp_internal.h"
-#include "tftp_internal.h"
-#include "ntp_internal.h"
+#include "net/arp.h"
+#include "net/protocol/icmp.h"
+#include "net/protocol/igmp.h"
+#include "net/protocol/udp.h"
+#include "net/protocol/tcp.h"
 
 #ifndef ALIGNED
 # define ALIGNED __attribute__ ((aligned (4)))
 #endif
 
-extern "C" {
-int console_error(const char *);
-void emac_eth_send(void *, int);
-int emac_eth_recv(uint8_t **);
-void emac_free_pkt(void);
-}
+namespace net::arp {
+enum class EthSend {
+	IS_NORMAL
+#if defined CONFIG_NET_ENABLE_PTP
+	, IS_TIMESTAMP
+#endif
+};
+} // namespace net::arp
 
+void console_error(const char *);
+
+uint8_t *emac_eth_send_get_dma_buffer();
+void emac_eth_send(const uint32_t);
+void emac_eth_send(void *, const uint32_t);
+#if defined CONFIG_NET_ENABLE_PTP
+void emac_eth_send_timestamp(const uint32_t);
+void emac_eth_send_timestamp(void *, const uint32_t);
+#endif
+uint32_t emac_eth_recv(uint8_t **);
+void emac_free_pkt();
+
+namespace net {
 void net_handle();
 
 uint16_t net_chksum(const void *, uint32_t);
 void net_timers_run();
 
-void arp_init();
-void arp_handle(struct t_arp *);
-bool arp_do_probe();
-void arp_cache_init();
-void arp_send_request(uint32_t);
-void arp_send_probe();
-void arp_send_announcement();
-void arp_cache_update(const uint8_t *, uint32_t);
-uint32_t arp_cache_lookup(uint32_t, uint8_t *);
-
 void ip_init();
-void ip_set_ip();
 void ip_shutdown();
 void ip_handle(struct t_ip4 *);
 
-int dhcp_client(const char *);
-void dhcp_client_release();
-
-bool rfc3927();
-
 void udp_init();
-void udp_set_ip();
-void udp_handle(struct t_udp *);
+void udp_input(const struct t_udp *);
 void udp_shutdown();
 
 void igmp_init();
-void igmp_set_ip();
-void igmp_handle(struct t_igmp *);
+void igmp_input(const struct t_igmp *);
 void igmp_shutdown();
-void igmp_timer();
 
-void icmp_handle(struct t_icmp *);
+void icmp_input(struct t_icmp *);
 void icmp_shutdown();
 
 void tcp_init();
 void tcp_run();
-void tcp_handle(struct t_tcp *);
+void tcp_input(struct t_tcp *);
 void tcp_shutdown();
+}  // namespace net
 
 #endif /* NET_PRIVATE_H_ */

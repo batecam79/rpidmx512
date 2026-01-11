@@ -2,7 +2,7 @@
  * @file mcpbuttons.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,21 +27,20 @@
 #include <cstdio>
 #include <cassert>
 
-#include "mcpbuttons.h"
 #include "hardware.h"
 #include "network.h"
 
-#include "arm/synchronize.h"
+#include "mcpbuttons.h"
 
 #include "ltcdisplayrgb.h"
 #include "ltcparams.h"
 
 #include "display.h"
-#include "display7segment.h"
 #include "ltcdisplaymax7219.h"
 #include "rotaryencoder.h"
 
 #include "hal_i2c.h"
+#include "hal_gpio.h"
 #include "mcp23x17.h"
 
 #include "displayedittimecode.h"
@@ -52,22 +51,12 @@
 #include "ltcsource.h"
 #include "ltcstore.h"
 
-#include "ltcgenerator.h"
-#include "systimereader.h"
-
-// Interrupt
-#include "board/h3_opi_zero.h"
-#include "h3_gpio.h"
+#include "arm/ltcgenerator.h"
+#include "arm/systimereader.h"
 
 #include "configstore.h"
 
 #include "debug.h"
-
-static constexpr Display7SegmentMessage s_7Segment[] = {
-		Display7SegmentMessage::GENERIC_1, Display7SegmentMessage::GENERIC_2,
-		Display7SegmentMessage::GENERIC_3, Display7SegmentMessage::GENERIC_4,
-		Display7SegmentMessage::GENERIC_5, Display7SegmentMessage::GENERIC_6,
-		Display7SegmentMessage::GENERIC_7, Display7SegmentMessage::GENERIC_8 };
 
 namespace mcp23017 {
 static constexpr auto I2C_ADDRESS = 0x20;
@@ -178,22 +167,27 @@ void McpButtons::HandleRotary(uint8_t nInputAB, ltc::Source &tLtcReaderSource) {
 void McpButtons::UpdateDisplays(const ltc::Source ltcSource) {
 	const auto nSource = static_cast<uint8_t>(ltcSource);
 
-	Display::Get()->TextStatus(LtcSourceConst::NAME[nSource], s_7Segment[nSource]);
+	Display::Get()->TextStatus(LtcSourceConst::NAME[nSource]);
 
-	if (!g_ltc_ptLtcDisabledOutputs.bMax7219) {
+//	if (!ltc::g_DisabledOutputs.bMax7219) {
+	if (ltc::Destination::IsEnabled(ltc::Destination::Output::MAX7219)) {
 		LtcDisplayMax7219::Get()->WriteChar(nSource);
 		return;
 	}
-
-	if (!g_ltc_ptLtcDisabledOutputs.bWS28xx){
+#if !defined (CONFIG_LTC_DISABLE_WS28XX)
+//	if (!ltc::g_DisabledOutputs.bWS28xx){
+	if (ltc::Destination::IsEnabled(ltc::Destination::Output::WS28XX)) {
 		LtcDisplayRgb::Get()->WriteChar(nSource);
 		return;
 	}
-
-	if (!g_ltc_ptLtcDisabledOutputs.bRgbPanel) {
+#endif
+#if !defined (CONFIG_LTC_DISABLE_RGB_PANEL)
+//	if (!ltc::g_DisabledOutputs.bRgbPanel) {
+	if (ltc::Destination::IsEnabled(ltc::Destination::Output::RGBPANEL)) {
 		LtcDisplayRgb::Get()->ShowSource(ltcSource);
 		return;
 	}
+#endif
 }
 
 bool McpButtons::Check() {
@@ -219,8 +213,8 @@ bool McpButtons::Check() {
 
 	UpdateDisplays(m_tLtcReaderSource);
 
-	h3_gpio_fsel(gpio::INTA, GPIO_FSEL_INPUT); // PA7
-	h3_gpio_set_pud(gpio::INTA, GPIO_PULL_UP);
+	FUNC_PREFIX(gpio_fsel(gpio::INTA, GPIO_FSEL_INPUT));
+	FUNC_PREFIX(gpio_set_pud(gpio::INTA, GPIO_PULL_UP));
 
 	DEBUG_EXIT
 	return true;
@@ -234,7 +228,7 @@ bool McpButtons::Wait(ltc::Source& ltcSource, struct ltc::TimeCode& StartTimeCod
 		return false;
 	}
 
-	if (__builtin_expect(h3_gpio_lev(gpio::INTA) == LOW, 0)) {
+	if (__builtin_expect(FUNC_PREFIX(gpio_lev(gpio::INTA)) == 0, 0)) {
 		m_nLedTickerMax = UINT32_MAX;
 
 		const auto nPortA = m_I2C.ReadRegister(mcp23x17::REG_GPIOA);
@@ -387,19 +381,14 @@ void McpButtons::HandleRunActionSelect() {
 	}
 
 	if (m_tRunStatus == RunStatus::REBOOT) {
-		while (ConfigStore::Get()->Flash())
-			;
-
-		printf("Reboot ...\n");
-
 		m_I2C.WriteRegister(mcp23x17::REG_GPIOB, static_cast<uint8_t>(0xFF));
 
+		Display::Get()->SetSleep(false);
 		Display::Get()->Cls();
-		Display::Get()->TextStatus("Reboot ...", Display7SegmentMessage::INFO_REBOOTING);
+		Display::Get()->TextStatus("Reboot ...");
 
-		Network::Get()->Shutdown();
 		Hardware::Get()->Reboot();
-
+		__builtin_unreachable() ;
 		return;
 	}
 
@@ -415,7 +404,7 @@ void McpButtons::Run() {
 		return;
 	}
 
-	if (__builtin_expect(h3_gpio_lev(gpio::INTA) == LOW, 0)) {
+	if (__builtin_expect(FUNC_PREFIX(gpio_lev(gpio::INTA)) == 0, 0)) {
 
 		const auto nPortA = m_I2C.ReadRegister(mcp23x17::REG_GPIOA);
 		const uint8_t nButtonsChanged = (nPortA ^ m_nPortAPrevious) & nPortA;

@@ -31,8 +31,8 @@
 #include "rdmconst.h"
 #include "configstore.h"
 
-namespace rdm {
-namespace deviceparams {
+
+namespace rdm::deviceparams {
 struct Params {
     uint32_t nSetList;
     char aDeviceRootLabel[RDM_DEVICE_LABEL_MAX_LENGTH];
@@ -47,7 +47,7 @@ struct Mask {
 	static constexpr auto PRODUCT_DETAIL = (1U << 2);
 };
 }  // namespace rdmdevice
-}  // namespace rdm
+
 
 class RDMDevice;
 
@@ -76,7 +76,7 @@ public:
 
 	void Set(RDMDevice *pRDMDevice);
 
-    static void staticCallbackFunction(void *p, const char *s);
+    static void StaticCallbackFunction(void *p, const char *s);
 
 private:
 	void Dump();

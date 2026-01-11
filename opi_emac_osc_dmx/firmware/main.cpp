@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,48 +28,43 @@
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
 
 #include "display.h"
 
-#include "mdns.h"
+#include "net/apps/mdns.h"
 
 #include "oscserver.h"
 #include "oscserverparams.h"
 #include "oscservermsgconst.h"
-// DMX Out
+
 #include "dmxparams.h"
 #include "dmxsend.h"
-#include "dmxconfigudp.h"
 
 #include "flashcodeinstall.h"
 #include "configstore.h"
 #include "remoteconfig.h"
 #include "remoteconfigparams.h"
 
-
 #include "firmwareversion.h"
 #include "software_version.h"
 
 #include "displayhandler.h"
 
-void Hardware::RebootHandler() {
+namespace hal {
+void reboot_handler() {
 	Dmx::Get()->Blackout();
 }
+}  // namespace hal
 
-void main() {
+int main() {
 	Hardware hw;
 	Display display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print("OSC Server DMX");
-	nw.Print();
 
 	OSCServerParams params;
 	OscServer server;
@@ -77,9 +72,9 @@ void main() {
 	params.Load();
 	params.Set(&server);
 
-	mDns.ServiceRecordAdd(nullptr, mdns::Services::OSC, "type=server", server.GetPortIncoming());
+	mdns_service_record_add(nullptr, mdns::Services::OSC, "type=server", server.GetPortIncoming());
 
-	display.TextStatus(OscServerMsgConst::PARAMS, Display7SegmentMessage::INFO_BRIDGE_PARMAMS, CONSOLE_YELLOW);
+	display.TextStatus(OscServerMsgConst::PARAMS, CONSOLE_YELLOW);
 
 	Dmx dmx;
 
@@ -89,8 +84,6 @@ void main() {
 
 	DmxSend dmxSend;
 	dmxSend.Print();
-
-	DmxConfigUdp dmxConfigUdp;
 
 	server.SetOutput(&dmxSend);
 	server.Print();
@@ -113,27 +106,17 @@ void main() {
 	display.Printf(4, "In: %d", server.GetPortIncoming());
 	display.Printf(5, "Out: %d", server.GetPortOutgoing());
 
-	display.TextStatus(OscServerMsgConst::START, Display7SegmentMessage::INFO_BRIDGE_START, CONSOLE_YELLOW);
+	display.TextStatus(OscServerMsgConst::START, CONSOLE_YELLOW);
 
 	server.Start();
 
-	display.TextStatus(OscServerMsgConst::STARTED, Display7SegmentMessage::INFO_BRIDGE_STARTED, CONSOLE_GREEN);
-
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
+	display.TextStatus(OscServerMsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
 	for (;;) {
 		hw.WatchdogFeed();
 		nw.Run();
-		server.Run();
-		remoteConfig.Run();
-		configStore.Flash();
-		mDns.Run();
-		dmxConfigUdp.Run();
 		display.Run();
 		hw.Run();
 	}

@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,11 +28,6 @@
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
-
-#include "mdns.h"
-
-#include "ntpclient.h"
 
 #include "console.h"
 #include "h3/showsystime.h"
@@ -53,6 +48,11 @@
 #include "rdm_e120.h"
 #include "factorydefaults.h"
 
+#if defined (NODE_SHOWFILE)
+# include "showfile.h"
+# include "showfileparams.h"
+#endif
+
 #include "remoteconfig.h"
 #include "remoteconfigparams.h"
 
@@ -62,23 +62,11 @@
 #include "firmwareversion.h"
 #include "software_version.h"
 
-namespace e131bridge {
-namespace configstore {
-uint32_t DMXPORT_OFFSET = 0;
-}  // namespace configstore
-}  // namespace e131bridge
-
-void Hardware::RebootHandler() {
-}
-
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
@@ -91,12 +79,6 @@ void main() {
 	console_puts("Real-time DMX Monitor");
 	console_set_fg_color(CONSOLE_WHITE);
 	console_set_top_row(2);
-
-	nw.Print();
-
-	NtpClient ntpClient;
-	ntpClient.Start();
-	ntpClient.Print();
 
 	ShowSystime showSystime;
 
@@ -120,8 +102,6 @@ void main() {
 
 	llrpOnlyDevice.Print();
 
-	display.TextStatus(E131MsgConst::PARAMS, Display7SegmentMessage::INFO_BRIDGE_PARMAMS, CONSOLE_YELLOW);
-
 	E131Bridge bridge;
 
 	E131Params e131params;
@@ -130,6 +110,20 @@ void main() {
 
 	bool IsSet;
 	bridge.SetUniverse(0, lightset::PortDir::OUTPUT, e131params.GetUniverse(0, IsSet));
+
+#if defined (NODE_SHOWFILE)
+	ShowFile showFile;
+
+	ShowFileParams showFileParams;
+	showFileParams.Load();
+	showFileParams.Set();
+
+	if (showFile.IsAutoStart()) {
+		showFile.Play();
+	}
+
+	showFile.Print();
+#endif
 
 	DMXMonitor monitor;
 	// There is support for HEX output only
@@ -151,7 +145,7 @@ void main() {
 	displayUdfParams.Load();
 	displayUdfParams.Set(&display);
 
-	display.Show(&bridge);
+	display.Show();
 
 	RemoteConfig remoteConfig(remoteconfig::Node::E131, remoteconfig::Output::MONITOR, 0);
 
@@ -159,16 +153,11 @@ void main() {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
-	display.TextStatus(E131MsgConst::START, Display7SegmentMessage::INFO_BRIDGE_START, CONSOLE_YELLOW);
+	display.TextStatus(E131MsgConst::START, CONSOLE_YELLOW);
 
 	bridge.Start();
 
-	display.TextStatus(E131MsgConst::STARTED, Display7SegmentMessage::INFO_BRIDGE_STARTED, CONSOLE_GREEN);
+	display.TextStatus(E131MsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
@@ -176,12 +165,10 @@ void main() {
 		hw.WatchdogFeed();
 		nw.Run();
 		bridge.Run();
-		remoteConfig.Run();
-		llrpOnlyDevice.Run();
-		configStore.Flash();
-		ntpClient.Run();
+#if defined (NODE_SHOWFILE)
+		showFile.Run();
+#endif
 		showSystime.Run();
-		mDns.Run();
 		display.Run();
 		hw.Run();
 	}

@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2021-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,20 +23,22 @@
  * THE SOFTWARE.
  */
 
+#pragma GCC push_options
+#pragma GCC optimize ("O2")
+#pragma GCC optimize ("no-tree-loop-distribute-patterns")
+
 #include <cstdint>
 #include <cstdio>
-#include <cassert>
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
 
-#include "mdns.h"
+#include "net/apps/mdns.h"
 
 #include "displayudf.h"
 #include "displayudfparams.h"
 #include "displayhandler.h"
-#include "display_timeout.h"
+#include "handleroled.h"
 
 #include "e131.h"
 #include "e131bridge.h"
@@ -49,14 +51,11 @@
 #include "ws28xxmulti.h"
 #include "pixeldmxparams.h"
 #include "ws28xxdmxmulti.h"
-#include "ws28xxdmxstartstop.h"
-#include "handleroled.h"
 
 #include "dmxparams.h"
 #include "dmxsend.h"
-#include "dmxconfigudp.h"
 
-#include "lightset32with4.h"
+#include "lightsetwith4.h"
 
 #if defined (NODE_RDMNET_LLRP_ONLY)
 # include "rdmdeviceparams.h"
@@ -65,6 +64,11 @@
 # include "rdmpersonality.h"
 # include "rdm_e120.h"
 # include "factorydefaults.h"
+#endif
+
+#if defined (NODE_SHOWFILE)
+# include "showfile.h"
+# include "showfileparams.h"
 #endif
 
 #include "remoteconfig.h"
@@ -76,34 +80,24 @@
 #include "firmwareversion.h"
 #include "software_version.h"
 
-namespace e131bridge {
-namespace configstore {
-uint32_t DMXPORT_OFFSET = 32;
-}  // namespace configstore
-}  // namespace e131bridge
-
-void Hardware::RebootHandler() {
+namespace hal {
+void reboot_handler() {
 	WS28xxMulti::Get()->Blackout();
 	Dmx::Get()->Blackout();
 	E131Bridge::Get()->Stop();
 }
+}  // namespace hal
 
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print("sACN E1.31 Pixel controller {8x 4 Universes} / 2x DMX");
-	nw.Print();
-
-	display.TextStatus(E131MsgConst::PARAMS, Display7SegmentMessage::INFO_BRIDGE_PARMAMS, CONSOLE_YELLOW);
-
+	
 	E131Bridge bridge;
 
 	E131Params e131params;
@@ -116,14 +110,14 @@ void main() {
 
 	PixelDmxParams pixelDmxParams;
 	pixelDmxParams.Load();
-	pixelDmxParams.Set(&pixelDmxConfiguration);
+	pixelDmxParams.Set();
 
-	WS28xxDmxMulti pixelDmxMulti(pixelDmxConfiguration);
-	pixelDmxMulti.SetPixelDmxHandler(new PixelDmxStartStop);
+	WS28xxDmxMulti pixelDmxMulti;
+
 	WS28xxMulti::Get()->SetJamSTAPLDisplay(new HandlerOled);
 
-	const auto nActivePorts = pixelDmxMulti.GetOutputPorts();
-	const auto nUniverses = pixelDmxMulti.GetUniverses();
+	const auto nActivePorts = pixelDmxConfiguration.GetOutputPorts();
+	const auto nUniverses = pixelDmxConfiguration.GetUniverses();
 
 	uint32_t nPortProtocolIndex = 0;
 
@@ -150,7 +144,7 @@ void main() {
 	auto direction = e131params.GetDirection(0);
 
 	if (direction == lightset::PortDir::OUTPUT) {
-		bridge.SetUniverse(e131bridge::configstore::DMXPORT_OFFSET, lightset::PortDir::OUTPUT, nUniverse);
+		bridge.SetUniverse(DmxSend::DMXPORT_OFFSET, lightset::PortDir::OUTPUT, nUniverse);
 		nDmxUniverses++;
 	}
 
@@ -158,7 +152,7 @@ void main() {
 	direction = e131params.GetDirection(1);
 
 	if (direction == lightset::PortDir::OUTPUT) {
-		bridge.SetUniverse(e131bridge::configstore::DMXPORT_OFFSET + 1U, lightset::PortDir::OUTPUT, nUniverse);
+		bridge.SetUniverse(DmxSend::DMXPORT_OFFSET + 1U, lightset::PortDir::OUTPUT, nUniverse);
 		nDmxUniverses++;
 	}
 
@@ -168,9 +162,9 @@ void main() {
 	dmxparams.Load();
 	dmxparams.Set(&dmx);
 
-	for (uint32_t nPortIndex = e131bridge::configstore::DMXPORT_OFFSET; nPortIndex < e131bridge::MAX_PORTS; nPortIndex++) {
+	for (uint32_t nPortIndex = DmxSend::DMXPORT_OFFSET; nPortIndex < e131bridge::MAX_PORTS; nPortIndex++) {
 		uint16_t nUniverse;
-		const auto nDmxPortIndex = nPortIndex - e131bridge::configstore::DMXPORT_OFFSET;
+		const auto nDmxPortIndex = nPortIndex - DmxSend::DMXPORT_OFFSET;
 
 		if (bridge.GetUniverse(nPortIndex, nUniverse, lightset::PortDir::OUTPUT)) {
 			dmx.SetPortDirection(nDmxPortIndex, dmx::PortDirection::OUTP, false);
@@ -180,30 +174,22 @@ void main() {
 	}
 
 	DmxSend dmxSend;
-	dmxSend.Print();
-
-	DmxConfigUdp *pDmxConfigUdp = nullptr;
-
-	if (nDmxUniverses != 0) {
-		pDmxConfigUdp = new DmxConfigUdp;
-		assert(pDmxConfigUdp != nullptr);
-	}
 
 	display.SetDmxInfo(displayudf::dmx::PortDir::OUTPUT, nDmxUniverses);
 
 	// LightSet 32with4
 
-	LightSet32with4 lightSet((PixelTestPattern::GetPattern() != pixelpatterns::Pattern::NONE) ? nullptr : &pixelDmxMulti, (nDmxUniverses != 0) ? &dmxSend : nullptr);
+	LightSetWith4<32> lightSet((PixelTestPattern::Get()->GetPattern() != pixelpatterns::Pattern::NONE) ? nullptr : &pixelDmxMulti, (nDmxUniverses != 0) ? &dmxSend : nullptr);
 	lightSet.Print();
 
 	bridge.SetOutput(&lightSet);
 	bridge.Print();
 
 #if defined (NODE_RDMNET_LLRP_ONLY)
-	display.TextStatus(RDMNetConst::MSG_CONFIG, Display7SegmentMessage::INFO_RDMNET_CONFIG, CONSOLE_YELLOW);
+	display.TextStatus(RDMNetConst::MSG_CONFIG, CONSOLE_YELLOW);
 
 	char aDescription[rdm::personality::DESCRIPTION_MAX_LENGTH + 1];
-	snprintf(aDescription, sizeof(aDescription) - 1, "sACN Pixel %u-%s:%d DMX %u", nActivePorts, PixelType::GetType(WS28xxMulti::Get()->GetType()), WS28xxMulti::Get()->GetCount(), nDmxUniverses);
+	snprintf(aDescription, sizeof(aDescription) - 1, "sACN Pixel %u-%s:%d DMX %u", nActivePorts, pixel::pixel_get_type(pixelDmxConfiguration.GetType()), pixelDmxConfiguration.GetCount(), nDmxUniverses);
 
 	char aLabel[RDM_DEVICE_LABEL_MAX_LENGTH + 1];
 	const auto nLength = snprintf(aLabel, sizeof(aLabel) - 1, "Orange Pi Zero Pixel-DMX");
@@ -223,7 +209,21 @@ void main() {
 	llrpOnlyDevice.Print();
 #endif
 
-	display.SetTitle("sACN Pixel 8:%dx%d", nActivePorts, WS28xxMulti::Get()->GetCount());
+#if defined (NODE_SHOWFILE)
+	ShowFile showFile;
+
+	ShowFileParams showFileParams;
+	showFileParams.Load();
+	showFileParams.Set();
+
+	if (showFile.IsAutoStart()) {
+		showFile.Play();
+	}
+
+	showFile.Print();
+#endif
+
+	display.SetTitle("sACN Pixel 8:%dx%d", nActivePorts, pixelDmxConfiguration.GetCount());
 	display.Set(2, displayudf::Labels::IP);
 	display.Set(3, displayudf::Labels::HOSTNAME);
 	display.Set(4, displayudf::Labels::VERSION);
@@ -234,13 +234,12 @@ void main() {
 	displayUdfParams.Load();
 	displayUdfParams.Set(&display);
 
-	display.Show(&bridge);
-
+	display.Show();
 	display.Printf(7, "%s:%d G%d %s",
-		PixelType::GetType(pixelDmxConfiguration.GetType()),
+		pixel::pixel_get_type(pixelDmxConfiguration.GetType()),
 		pixelDmxConfiguration.GetCount(),
 		pixelDmxConfiguration.GetGroupingCount(),
-		PixelType::GetMap(pixelDmxConfiguration.GetMap()));
+		pixel::pixel_get_map(pixelDmxConfiguration.GetMap()));
 
 	if (nTestPattern != pixelpatterns::Pattern::NONE) {
 		display.ClearLine(6);
@@ -253,16 +252,11 @@ void main() {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
-	display.TextStatus(E131MsgConst::START, Display7SegmentMessage::INFO_BRIDGE_START, CONSOLE_YELLOW);
+	display.TextStatus(E131MsgConst::START, CONSOLE_YELLOW);
 
 	bridge.Start();
 
-	display.TextStatus(E131MsgConst::STARTED, Display7SegmentMessage::INFO_BRIDGE_STARTED, CONSOLE_GREEN);
+	display.TextStatus(E131MsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
@@ -270,18 +264,10 @@ void main() {
 		hw.WatchdogFeed();
 		nw.Run();
 		bridge.Run();
-		remoteConfig.Run();
-#if defined (NODE_RDMNET_LLRP_ONLY)
-		llrpOnlyDevice.Run();
+#if defined (NODE_SHOWFILE)
+		showFile.Run();
 #endif
-		configStore.Flash();
-		if (__builtin_expect((PixelTestPattern::GetPattern() != pixelpatterns::Pattern::NONE), 0)) {
-			pixelTestPattern.Run();
-		}
-		if (pDmxConfigUdp != nullptr) {
-			pDmxConfigUdp->Run();
-		}
-		mDns.Run();
+		pixelTestPattern.Run();
 		display.Run();
 		hw.Run();
 	}

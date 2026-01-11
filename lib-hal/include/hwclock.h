@@ -1,9 +1,8 @@
-
 /**
  * @file hwclock.h
  *
  */
-/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -57,7 +56,10 @@ public:
 		return RtcGetAlarm(pTime);
 	}
 	void AlarmEnable(const bool bEnable) {
-		RtcAlarmEnable(bEnable);
+		m_bRtcAlarmEnabled = bEnable;
+	}
+	bool AlarmIsEnabled() const {
+		return m_bRtcAlarmEnabled;
 	}
 
 	bool IsConnected() const {
@@ -83,9 +85,6 @@ private:
 	bool RtcGet(struct tm *pTime);
 	bool RtcSetAlarm(const struct tm *pTime);
 	bool RtcGetAlarm(struct tm *pTime);
-	void RtcAlarmEnable(const bool bEnable) {
-		m_bRtcAlarmEnabled = bEnable;
-	}
 	int MCP794xxAlarmWeekday(struct tm *pTime);
 	void PCF8563GetAlarmMode();
 	void PCF8563SetAlarmMode();

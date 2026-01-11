@@ -31,8 +31,8 @@
 #include "rdmsensors.h"
 #include "configstore.h"
 
-namespace rdm {
-namespace sensorsparams {
+
+namespace rdm::sensorsparams {
 struct Params {
 	uint32_t nDevices;
 	struct {
@@ -45,8 +45,8 @@ struct Params {
 
 static_assert(sizeof(struct Params) <= rdm::sensors::STORE, "struct Params is too large");
 
-}  // namespace sensorsparams
-}  // namespace rdm
+} // namespace rdm::sensorsparams
+
 
 class RDMSensorsParamsStore {
 public:
@@ -73,7 +73,7 @@ public:
 
 	void Set();
 
-    static void staticCallbackFunction(void *p, const char *s);
+    static void StaticCallbackFunction(void *p, const char *s);
 
 private:
 	void Dump();

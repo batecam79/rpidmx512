@@ -2,7 +2,7 @@
  * @file ltcdisplaymax7219matrix.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -152,6 +152,6 @@ void LtcDisplayMax7219Matrix::ShowSysTime(const char *pSystemTime) {
 	Max7219Matrix::Write(m_aBuffer, ltc::display::max7219::maxtrix::SEGMENTS);
 }
 
-void LtcDisplayMax7219Matrix::WriteChar(__attribute__((unused)) uint8_t nChar, __attribute__((unused)) uint8_t nPos) {
+void LtcDisplayMax7219Matrix::WriteChar([[maybe_unused]] uint8_t nChar, [[maybe_unused]] uint8_t nPos) {
 	// TODO Implement WriteChar
 }

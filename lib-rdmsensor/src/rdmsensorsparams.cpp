@@ -2,7 +2,7 @@
  * @file rdmsensorsparams.cpp
  *
  */
-/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@gd32-dmx.org
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,11 +22,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
-#endif
 
 #include <cstdint>
 #include <cstring>
@@ -83,7 +78,7 @@ void RDMSensorsParams::Load() {
 	m_Params.nDevices = 0;
 
 #if !defined(DISABLE_FS)
-	ReadConfigFile configfile(RDMSensorsParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(RDMSensorsParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(RDMSensorsConst::PARAMS_FILE_NAME)) {
 		RDMSensorsParamsStore::Update(&m_Params);
@@ -110,7 +105,7 @@ void RDMSensorsParams::Load(const char *pBuffer, uint32_t nLength) {
 
 	m_Params.nDevices = 0;
 
-	ReadConfigFile config(RDMSensorsParams::staticCallbackFunction, this);
+	ReadConfigFile config(RDMSensorsParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
@@ -282,7 +277,7 @@ void RDMSensorsParams::callbackFunction(const char *pLine) {
 	}
 }
 
-void RDMSensorsParams::staticCallbackFunction(void *p, const char *s) {
+void RDMSensorsParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 
@@ -297,6 +292,6 @@ void RDMSensorsParams::Dump() {
 	}
 
 	for (uint32_t i = 0; i < rdm::sensors::MAX; i++) {
-		printf("%2d %d\n", i, m_Params.nCalibrate[i]);
+		printf("%2u %u\n", static_cast<unsigned int>(i), static_cast<unsigned int>(m_Params.nCalibrate[i]));
 	}
 }

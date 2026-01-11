@@ -1,7 +1,7 @@
 /**
  * @file ltcdisplayrgbset.cpp
  */
-/* Copyright (C) 2020-2021 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2021 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -38,19 +38,19 @@ void LtcDisplayRgbSet::Init() {
 	DEBUG_EXIT
 }
 
-void LtcDisplayRgbSet::ShowFPS(__attribute__((unused)) ltc::Type tTimeCodeType, __attribute__((unused)) struct Colours &tColours) {
+void LtcDisplayRgbSet::ShowFPS([[maybe_unused]] ltc::Type tTimeCodeType, [[maybe_unused]] struct Colours &tColours) {
 	DEBUG_ENTRY
 
 	DEBUG_EXIT
 }
 
-void LtcDisplayRgbSet::ShowSource(__attribute__((unused)) ltc::Source tSource, __attribute__((unused)) struct Colours &tColours) {
+void LtcDisplayRgbSet::ShowSource([[maybe_unused]] ltc::Source tSource, [[maybe_unused]] struct Colours &tColours) {
 	DEBUG_ENTRY
 
 	DEBUG_EXIT
 }
 
-void LtcDisplayRgbSet::ShowInfo(__attribute__((unused)) const char *pInfo, __attribute__((unused)) uint32_t nLength, __attribute__((unused)) struct Colours &tColours) {
+void LtcDisplayRgbSet::ShowInfo([[maybe_unused]] const char *pInfo, [[maybe_unused]] uint32_t nLength, [[maybe_unused]] struct Colours &tColours) {
 	DEBUG_ENTRY
 
 	DEBUG_EXIT

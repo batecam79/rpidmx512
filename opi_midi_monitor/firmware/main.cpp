@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2016-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2016-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -46,14 +46,12 @@
 #include "software_version.h"
 #include "firmwareversion.h"
 
-void main() {
+int main() {
 	Hardware hw;
 	Display display;
 #if !defined(NO_EMAC)
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 #endif
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
@@ -66,14 +64,9 @@ void main() {
 	midi.Init(midi::Direction::INPUT);
 
 #if !defined(NO_EMAC)
-	nw.Print();
-
 	RemoteConfigParams remoteConfigParams;
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
-
-	while (configStore.Flash())
-		;
 #endif
 
 	console_clear();
@@ -90,7 +83,6 @@ void main() {
 		monitor.Run();
 #if !defined(NO_EMAC)
 		nw.Run();
-		remoteConfig.Run();
 #endif
 		hw.Run();
 	}

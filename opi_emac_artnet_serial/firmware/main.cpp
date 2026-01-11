@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,9 +27,8 @@
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
 
-#include "mdns.h"
+#include "net/apps/mdns.h"
 
 #include "displayudf.h"
 #include "displayudfparams.h"
@@ -48,7 +47,10 @@
 #include "rdm_e120.h"
 #include "factorydefaults.h"
 
-#include "factorydefaults.h"
+#if defined (NODE_SHOWFILE)
+# include "showfile.h"
+# include "showfileparams.h"
+#endif
 
 #include "remoteconfig.h"
 #include "remoteconfigparams.h"
@@ -56,35 +58,24 @@
 #include "flashcodeinstall.h"
 #include "configstore.h"
 
-
 #include "firmwareversion.h"
 #include "software_version.h"
 
-namespace artnetnode {
-namespace configstore {
-uint32_t DMXPORT_OFFSET = 0;
-}  // namespace configstore
-}  // namespace artnetnode
-
-void Hardware::RebootHandler() {
+namespace hal {
+void reboot_handler() {
 	ArtNetNode::Get()->Stop();
 }
+}  // namespace hal
 
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print("Art-Net 4 Node Serial [UART/SPI/I2C] {1 Universe}");
-	nw.Print();
-
-	display.TextStatus(ArtNetMsgConst::PARAMS, Display7SegmentMessage::INFO_NODE_PARMAMS, CONSOLE_YELLOW);
 
 	ArtNetNode node;
 	
@@ -109,6 +100,20 @@ void main() {
 	dmxSerial.Init();
 	dmxSerial.Print();
 
+#if defined (NODE_SHOWFILE)
+	ShowFile showFile;
+
+	ShowFileParams showFileParams;
+	showFileParams.Load();
+	showFileParams.Set();
+
+	if (showFile.IsAutoStart()) {
+		showFile.Play();
+	}
+
+	showFile.Print();
+#endif
+
 	display.SetTitle("Art-Net 4 %s", dmxSerial.GetSerialType());
 	display.Set(2, displayudf::Labels::IP);
 	display.Set(3, displayudf::Labels::VERSION);
@@ -119,7 +124,7 @@ void main() {
 	displayUdfParams.Load();
 	displayUdfParams.Set(&display);
 
-	display.Show(&node);
+	display.Show();
 
 	uint32_t nFilesCount = dmxSerial.GetFilesCount();
 	if (nFilesCount == 0) {
@@ -150,16 +155,11 @@ void main() {
 
 	llrpOnlyDevice.Print();
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
-	display.TextStatus(ArtNetMsgConst::START, Display7SegmentMessage::INFO_NODE_START, CONSOLE_YELLOW);
+	display.TextStatus(ArtNetMsgConst::START, CONSOLE_YELLOW);
 
 	node.Start();
 
-	display.TextStatus(ArtNetMsgConst::STARTED, Display7SegmentMessage::INFO_NODE_STARTED, CONSOLE_GREEN);
+	display.TextStatus(ArtNetMsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
@@ -167,11 +167,9 @@ void main() {
 		hw.WatchdogFeed();
 		nw.Run();
 		node.Run();
-		dmxSerial.Run();
-		llrpOnlyDevice.Run();
-		remoteConfig.Run();
-		configStore.Flash();
-		mDns.Run();
+#if defined (NODE_SHOWFILE)
+		showFile.Run();
+#endif
 		display.Run();
 		hw.Run();
 	}

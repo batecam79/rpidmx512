@@ -2,7 +2,7 @@
  * @file pixeltestpattern.h
  *
  */
-/* Copyright (C) 2021-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,28 +29,39 @@
 #include <cstdint>
 #include <cassert>
 
+#include "pixel.h"
 #include "pixelpatterns.h"
 
-class PixelTestPattern: PixelPatterns {
+#include "debug.h"
+
+class PixelTestPattern final: PixelPatterns {
 public:
-	PixelTestPattern(pixelpatterns::Pattern Pattern, uint32_t OutputPorts) : PixelPatterns(OutputPorts) {
-		s_Pattern = Pattern;
+	PixelTestPattern(const pixelpatterns::Pattern Pattern, const uint32_t OutputPorts) : PixelPatterns(OutputPorts) {
+		DEBUG_ENTRY
+
+		assert(s_pThis == nullptr);
+		s_pThis = this;
+
 		SetPattern(Pattern);
+
+		DEBUG_EXIT
 	}
 
-	bool SetPattern(pixelpatterns::Pattern Pattern) {
+	bool SetPattern(const pixelpatterns::Pattern Pattern) {
 		if (Pattern >= pixelpatterns::Pattern::LAST)  {
 			return false;
 		}
 
-		s_Pattern = Pattern;
+		m_Pattern = Pattern;
 
-		const auto nColour1 = PixelPatterns::Colour(0, 0, 0);
-		const auto nColour2 = PixelPatterns::Colour(100, 100, 100);
+		const auto nColour1 = pixel::get_colour(0, 0, 0);
+		const auto nColour2 = pixel::get_colour(100, 100, 100);
 		constexpr auto nInterval = 100;
 		constexpr auto nSteps = 10;
 
-		for (uint32_t i = 0; i < pixelpatterns::MAX_PORTS; i++) {
+		for (uint32_t i = 0; i < PixelPatterns::GetActivePorts(); i++) {
+			DEBUG_PRINTF("i=%u",i);
+
 			switch (Pattern) {
 			case pixelpatterns::Pattern::RAINBOW_CYCLE:
 				PixelPatterns::RainbowCycle(i, nInterval);
@@ -60,9 +71,6 @@ public:
 				break;
 			case pixelpatterns::Pattern::COLOR_WIPE:
 				PixelPatterns::ColourWipe(i, nColour2, nInterval);
-				break;
-			case pixelpatterns::Pattern::SCANNER:
-				PixelPatterns::Scanner(i, PixelPatterns::Colour(255, 255, 255), nInterval);
 				break;
 			case pixelpatterns::Pattern::FADE:
 				PixelPatterns::Fade(i, nColour1, nColour2, nSteps, nInterval);
@@ -80,22 +88,22 @@ public:
 	}
 
 	void Run() {
-		if (s_Pattern != pixelpatterns::Pattern::NONE) {
+		if (__builtin_expect((m_Pattern != pixelpatterns::Pattern::NONE), 0)) {
 			PixelPatterns::Run();
 		}
 	}
 
-	static pixelpatterns::Pattern GetPattern() {
-		return s_Pattern;
+	pixelpatterns::Pattern GetPattern() const {
+		return m_Pattern;
 	}
 
-	static PixelTestPattern* Get() {
+	static PixelTestPattern *Get() {
 		return s_pThis;
 	}
 
 private:
-	static pixelpatterns::Pattern s_Pattern;
-	static PixelTestPattern *s_pThis;
+	pixelpatterns::Pattern m_Pattern;
+	static inline PixelTestPattern *s_pThis;
 };
 
 #endif /* PIXELTESTPATTERN_H_ */

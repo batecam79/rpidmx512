@@ -2,7 +2,7 @@
  * @file httpdhandlerequest.h
  *
  */
-/* Copyright (C) 2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,20 +27,35 @@
 #define HTTPD_HTTPDHANDLEREQUEST_H_
 
 #include <cstdint>
+#include <new>
 
 #include "http.h"
+#include "net/protocol/tcp.h"
 
 #include "debug.h"
 
+namespace httpd {
+#if !defined(HTTPD_CONTENT_SIZE)
+# define HTTPD_CONTENT_SIZE	TCP_DATA_SIZE
+#endif
+static constexpr uint32_t BUFSIZE = HTTPD_CONTENT_SIZE;
+}  // namespace httpd
+
 class HttpDeamonHandleRequest {
 public:
-	HttpDeamonHandleRequest(uint32_t nConnectionHandle, int32_t nHandle) : m_nConnectionHandle(nConnectionHandle), m_nHandle(nHandle) {
+    HttpDeamonHandleRequest() : m_nConnectionHandle(0), m_nHandle(-1) {
 		DEBUG_ENTRY
-		DEBUG_PRINTF("m_nConnectionHandle=%u", m_nConnectionHandle);
+		DEBUG_EXIT
+
+    }
+
+    HttpDeamonHandleRequest(uint32_t nConnectionHandle, int32_t nHandle) : m_nConnectionHandle(nConnectionHandle), m_nHandle(nHandle) {
+		DEBUG_ENTRY
+		DEBUG_PRINTF("[%u] m_nConnectionHandle=%u, m_nHandle=%d", httpd::BUFSIZE, m_nConnectionHandle, m_nHandle);
 		DEBUG_EXIT
 	}
 
-	void HandleRequest(const uint32_t nBytesReceived, char *pRequestHeaderResponse);
+	void HandleRequest(const uint32_t nBytesReceived, char *m_pReceiveBuffer);
 
 private:
 	http::Status ParseRequest();
@@ -48,28 +63,32 @@ private:
 	http::Status ParseHeaderField(char *pLine);
 	http::Status HandleGet();
 	http::Status HandleGetTxt();
-	http::Status HandlePost(bool hasDataOnly);
+	http::Status HandlePost(const bool hasDataOnly);
+	http::Status HandleDelete(const bool hasDataOnly);
+	http::Status HandlePostJSON();
 
 private:
 	uint32_t m_nConnectionHandle;
 	int32_t m_nHandle;
-	uint32_t m_nContentLength { 0 };
-	uint32_t m_nFileDataLength { 0 };
+	uint32_t m_nContentSize { 0 };
+	uint32_t m_nRequestDataLength { 0 };
 	uint32_t m_nRequestContentLength { 0 };
 	uint32_t m_nBytesReceived { 0 };
 
-	const char *m_pContentType;
 	char *m_pUri { nullptr };
 	char *m_pFileData { nullptr };
-	char *m_RequestHeaderResponse { nullptr };
+	char *m_pFirmwareFilename { nullptr };
+	char *m_pReceiveBuffer { nullptr };
+	const char *m_pContent { nullptr };
 
 	http::Status m_Status { http::Status::UNKNOWN_ERROR };
 	http::RequestMethod m_RequestMethod { http::RequestMethod::UNKNOWN };
+	http::contentTypes m_RequestContentType { http::contentTypes::NOT_DEFINED };
 
-	bool m_bContentTypeJson { false };
-	bool m_IsAction { false };
+	bool m_isAction { false };
 
-	static char m_Content[http::BUFSIZE];
+
+	char m_DynamicContent[httpd::BUFSIZE];
 };
 
 

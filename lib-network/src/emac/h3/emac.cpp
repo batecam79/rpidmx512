@@ -2,7 +2,7 @@
  * @file emac.cpp
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,16 +23,10 @@
  * THE SOFTWARE.
  */
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-#pragma GCC diagnostic ignored "-Wuseless-cast"
-
 #include <cstdint>
 #include <stdbool.h>
 #include <cstring>
-//#ifndef NDEBUG
-# include <cstdio>
-//#endif
+#include <cstdio>
 #include <cassert>
 
 #include "emac.h"
@@ -54,13 +48,17 @@
 
 coherent_region *p_coherent_region = nullptr;
 
-static void adjust_link(bool duplex, uint32_t speed) {
+void emac_adjust_link(const net::PhyStatus phyStatus) {
 	DEBUG_ENTRY
-	DEBUG_PRINTF("duplex=%u, speed=%u", duplex, speed);
 
-	uint32_t value = H3_EMAC->CTL0;
+	printf("Link %s, %d, %s\n",
+			phyStatus.link == net::Link::STATE_UP ? "Up" : "Down",
+			phyStatus.speed == net::Speed::SPEED10 ? 10 : 100,
+			phyStatus.duplex == net::Duplex::DUPLEX_HALF ? "HALF" : "FULL");
 
-	if (duplex) {
+	auto value = H3_EMAC->CTL0;
+
+	if (phyStatus.duplex == net::Duplex::DUPLEX_FULL) {
 		value |= CTL0_DUPLEX_FULL_DUPLEX;
 	} else {
 		value &= (uint32_t)~CTL0_DUPLEX_FULL_DUPLEX;
@@ -68,16 +66,12 @@ static void adjust_link(bool duplex, uint32_t speed) {
 
 	value &= (uint32_t)~(CTL0_SPEED_MASK << CTL0_SPEED_SHIFT);
 
-	switch (speed) {
-	case 1000:
-		break;
-	case 100:
-		value |= CTL0_SPEED_100M;
-		break;
-	case 10:
+	switch (phyStatus.speed) {
+	case net::Speed::SPEED10:
 		value |= CTL0_SPEED_10M;
 		break;
 	default:
+		value |= CTL0_SPEED_100M;
 		break;
 	}
 
@@ -171,15 +165,7 @@ void __attribute__((cold)) emac_start(uint8_t macAddress[], net::Link& link) {
 
 	link = phyStatus.link;
 
-	const bool fullDuplex = (phyStatus.duplex == net::Duplex::DUPLEX_FULL);
-	const uint32_t speed = (phyStatus.speed == net::Speed::SPEED10 ? 10 : 100);
-
-	DEBUG_PRINTF("%s, %d, %s",
-			phyStatus.link == net::Link::STATE_UP ? "Up" : "Down",
-			speed == 10 ? 10 : 100,
-			fullDuplex ? "FULL" : "HALF" );
-
-	adjust_link(fullDuplex, speed);
+	emac_adjust_link(phyStatus);
 
 #ifndef NDEBUG
 	printf("sizeof(struct coherent_region)=%u\n", sizeof(struct coherent_region));
@@ -189,7 +175,7 @@ void __attribute__((cold)) emac_start(uint8_t macAddress[], net::Link& link) {
 	debug_print_bits(H3_EMAC->CTL0);
 #endif
 
-	assert(p_coherent_region == 0);
+	assert(p_coherent_region == nullptr);
 	assert(sizeof(struct coherent_region) < MEGABYTE/2);
 
 	p_coherent_region = (struct coherent_region *)H3_MEM_COHERENT_REGION;

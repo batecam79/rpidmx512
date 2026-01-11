@@ -2,7 +2,7 @@
  * @file dmxserial.h
  *
  */
-/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -65,11 +65,9 @@ public:
 	void Start(const uint32_t nPortIndex) override;
 	void Stop(const uint32_t nPortIndex) override;
 
-	void SetData(uint32_t nPortIndex, const uint8_t *pData, uint32_t nLength, const bool doUpdate = true) override;
+	void SetData(const uint32_t nPortIndex, const uint8_t *pData, uint32_t nLength, const bool doUpdate = true) override;
 	void Sync(const uint32_t nPortIndex) override;
-	void Sync(const bool doForce = false) override;
-
-	void Run();
+	void Sync() override;
 
 	void Print() override;
 
@@ -86,6 +84,8 @@ public:
 	bool DeleteFile(int32_t nFileNumber);
 	bool DeleteFile(const char *pFileNumber);
 
+	void Input(const uint8_t *pBuffer, uint32_t nSize, uint32_t nFromIp, uint16_t nFromPort);
+
 	static bool FileNameCopyTo(char *pFileName, uint32_t nLength, int32_t nFileNumber);
 	static bool CheckFileName(const char *pFileName, int32_t &nFileNumber);
 
@@ -96,7 +96,10 @@ public:
 private:
 	void ScanDirectory();
 	void Update(const uint8_t *pData, const uint32_t nLength);
-	void HandleUdp();
+
+	void static StaticCallbackFunction(const uint8_t *pBuffer, uint32_t nSize, uint32_t nFromIp, uint16_t nFromPort) {
+		s_pThis->Input(pBuffer, nSize, nFromIp, nFromPort);
+	}
 
 private:
 	Serial m_Serial;
@@ -114,7 +117,7 @@ private:
 	bool m_bEnableTFTP { false };
 	DmxSerialTFTP *m_pDmxSerialTFTP { nullptr };
 
-	static DmxSerial *s_pThis;
+	static inline DmxSerial *s_pThis;
 };
 
 #endif /* DMXSERIAL_H_ */

@@ -31,13 +31,22 @@
  * https://www.gd32-dmx.org/memory.html
  */
 # include "gd32.h"
-# if defined (GD32F207RG) || defined (GD32F4XX)
+# if defined (GD32F207RG) || defined (GD32F4XX) || defined(GD32H7XX)
 #  define SECTION_NETWORK __attribute__ ((section (".network")))
 # else
 #  define SECTION_NETWORK
 # endif
 #else
+# include "h3.h"
 # define SECTION_NETWORK
+# include "../../src/emac/h3/emac.h"
+inline void *get_tx_dma() {
+	extern struct coherent_region *p_coherent_region;
+	auto desc_num = p_coherent_region->tx_currdescnum;
+	auto *desc_p = &p_coherent_region->tx_chain[desc_num];
+	auto data_start = static_cast<uintptr_t>(desc_p->buf_addr);
+	return reinterpret_cast<void *>(data_start);
+}
 #endif
 
 #endif /* NET_PLATFORM_H_ */

@@ -2,7 +2,7 @@
  * @file dmxserial.cpp
  *
  */
-/* Copyright (C) 2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -40,8 +40,6 @@
 
 #include "debug.h"
 
-DmxSerial *DmxSerial::s_pThis = nullptr;
-
 DmxSerial::DmxSerial() {
 	assert(s_pThis == nullptr);
 	s_pThis = this;
@@ -62,28 +60,29 @@ DmxSerial::~DmxSerial() {
 	}
 
 	Network::Get()->End(UDP::PORT);
+	m_nHandle = -1;
 
 	s_pThis = nullptr;
 }
 
 void DmxSerial::Init() {
-	// UDP Request
-	m_nHandle = Network::Get()->Begin(UDP::PORT);
+	assert(m_nHandle == -1);
+	m_nHandle = Network::Get()->Begin(UDP::PORT, StaticCallbackFunction);
 	assert(m_nHandle != -1);
 
 	ScanDirectory();
 	m_Serial.Init();
 }
 
-void DmxSerial::Start(__attribute__((unused)) uint32_t nPortIndex) {
+void DmxSerial::Start([[maybe_unused]] uint32_t nPortIndex) {
 	// No actions here
 }
 
-void DmxSerial::Stop(__attribute__((unused)) uint32_t nPortIndex) {
+void DmxSerial::Stop([[maybe_unused]] uint32_t nPortIndex) {
 	// No actions here
 }
 
-void DmxSerial::SetData(__attribute__((unused)) uint32_t nPortIndex, const uint8_t *pData, uint32_t nLength, const bool doUpdate) {
+void DmxSerial::SetData([[maybe_unused]] uint32_t nPortIndex, const uint8_t *pData, uint32_t nLength, const bool doUpdate) {
 	assert(nPortIndex == 0);
 	assert(pData != nullptr);
 
@@ -128,21 +127,19 @@ void DmxSerial::Update(const uint8_t *pData, const uint32_t nLength) {
 	}
 }
 
-void DmxSerial::Sync(__attribute__((unused)) uint32_t const nPortIndex) {
+void DmxSerial::Sync([[maybe_unused]] uint32_t const nPortIndex) {
 	// No actions here
 }
 
-void DmxSerial::Sync(const bool doForce) {
-	if (__builtin_expect((!doForce), 1)) {
-		Update(m_SyncData.data, m_SyncData.nLength);
-	}
+void DmxSerial::Sync() {
+	Update(m_SyncData.data, m_SyncData.nLength);
 }
 
 void DmxSerial::Print() {
 	m_Serial.Print();
 
 	printf("Files : %d\n", m_nFilesCount);
-	printf("DMX\n");
+	puts("DMX");
 	printf(" First channel : %d\n", m_aFileIndex[0]);
 	printf(" Last channel  : %u\n", m_nDmxLastSlot);
 }
@@ -256,16 +253,6 @@ void DmxSerial::EnableTFTP(bool bEnableTFTP) {
 	}
 
 	DEBUG_EXIT
-}
-
-void DmxSerial::Run() {
-	HandleUdp();
-
-	if (m_pDmxSerialTFTP == nullptr) {
-		return;
-	}
-
-	m_pDmxSerialTFTP->Run();
 }
 
 bool DmxSerial::DeleteFile(int32_t nFileNumber) {

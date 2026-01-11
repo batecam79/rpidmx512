@@ -1,8 +1,9 @@
+#if !defined (CONFIG_NETWORK_USE_MINIMUM)
 /**
  * @file network.cpp
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +24,12 @@
  * THE SOFTWARE.
  */
 
+#ifdef DEBUG_NETWORK
+# undef NDEBUG
+#endif
+
 #include <cstdio>
+#include <cstdint>
 #include <unistd.h>
 #include <stdlib.h>
 #include <cstring>
@@ -36,6 +42,11 @@
 #include <cassert>
 
 #include "network.h"
+#if !defined(CONFIG_NET_APPS_NO_MDNS)
+# include "net/apps/mdns.h"
+#endif
+
+#include "../../config/net_config.h"
 
 #include "debug.h"
 
@@ -49,13 +60,21 @@
 static uint8_t s_ReadBuffer[MAX_SEGMENT_LENGTH];
 
 namespace max {
-	static constexpr auto PORTS_ALLOWED = 32;
 	static constexpr auto ENTRIES = (1 << 2); // Must always be a power of 2
-	static constexpr auto ENTRIES_MASK __attribute__((unused)) = (ENTRIES - 1);
+	static constexpr auto ENTRIES_MASK [[maybe_unused]] = (ENTRIES - 1);
 }
 
-static int s_ports_allowed[max::PORTS_ALLOWED];
-static int snHandles[max::PORTS_ALLOWED];
+struct PortInfo {
+	net::UdpCallbackFunctionPtr callback;
+	uint16_t nPort;
+};
+
+struct Port {
+	PortInfo info;
+	int nSocket;
+};
+
+static Port s_Ports[UDP_MAX_PORTS_ALLOWED];
 
 /**
  * END
@@ -76,21 +95,18 @@ Network::Network(int argc, char **argv) {
 	m_aHostName[0] = '\0';
 	m_aDomainName[0] = '\0';
 	m_aIfName[0] = '\0';
+	memset(&m_nNameservers, 0, sizeof(m_nNameservers));
 
 /**
  * BEGIN - needed H3 code compatibility
  */
-	uint32_t i;
-
-	for (i = 0; i < max::PORTS_ALLOWED; i++) {
-		s_ports_allowed[i] = 0;
-		snHandles[i] = -1;
+	for (uint32_t i = 0; i < UDP_MAX_PORTS_ALLOWED; i++) {
+		s_Ports[i].nSocket = -1;
 	}
 
 	NetworkParams params;
 	params.Load();
 
-	m_nNtpServerIp = params.GetNtpServer();
 /**
  * END
  */
@@ -116,12 +132,10 @@ Network::Network(int argc, char **argv) {
 
 	m_nIfIndex = if_nametoindex(const_cast<char*>(m_aIfName));
 
-#if !defined ( __CYGWIN__ )
 	if (m_nIfIndex == 0) {
 		perror("if_nametoindex");
 		exit(EXIT_FAILURE);
 	}
-#endif
 
 	memset(m_aHostName, 0, sizeof(m_aHostName));
 
@@ -129,9 +143,9 @@ Network::Network(int argc, char **argv) {
 		perror("gethostname");
 	}
 
-	i = 0;
+	uint32_t i = 0;
 
-	while((m_aHostName[i] != '\0') && (i < network::HOSTNAME_SIZE) && (m_aHostName[i] != '.') ) {
+	while((m_aHostName[i] != '\0') && (i < net::HOSTNAME_SIZE) && (m_aHostName[i] != '.') ) {
 		i++;
 	}
 
@@ -139,22 +153,26 @@ Network::Network(int argc, char **argv) {
 
 	uint32_t j = 0;
 
-	while (j < network::DOMAINNAME_SIZE && i < network::HOSTNAME_SIZE && m_aHostName[i] != '\0') {
+	while (j < net::DOMAINNAME_SIZE && i < net::HOSTNAME_SIZE && m_aHostName[i] != '\0') {
 		m_aDomainName[j++] = m_aHostName[i++];
 	}
 
 	m_aDomainName[j]  = '\0';
+
+#if !defined(CONFIG_NET_APPS_NO_MDNS)
+	mdns_init();
+#endif
 }
 
 Network::~Network() {
-	for (unsigned i = 0; i < max::PORTS_ALLOWED; i++) {
-		if (s_ports_allowed[i] != 0) {
-			Network::End(s_ports_allowed[i]);
+	for (uint32_t i = 0; i < UDP_MAX_PORTS_ALLOWED; i++) {
+		if (s_Ports[i].info.nPort != 0) {
+			Network::End(s_Ports[i].info.nPort);
 		}
 	}
 }
 
-int32_t Network::Begin(uint16_t nPort) {
+int32_t Network::Begin(uint16_t nPort, [[maybe_unused]] net::UdpCallbackFunctionPtr callback) {
 	DEBUG_ENTRY
 	DEBUG_PRINTF("port = %d", nPort);
 
@@ -168,20 +186,25 @@ int32_t Network::Begin(uint16_t nPort) {
  * BEGIN - needed H3 code compatibility
  */
 
-	for (i = 0; i < max::PORTS_ALLOWED; i++) {
-		if (s_ports_allowed[i] == nPort) {
+	for (i = 0; i < UDP_MAX_PORTS_ALLOWED; i++) {
+		auto& portInfo = s_Ports[i].info;
+
+		if (portInfo.nPort == nPort) {
 			return i;
 		}
 
-		if (s_ports_allowed[i] == 0) {
+		if (portInfo.nPort == 0) {
+			portInfo.callback = callback;
+			portInfo.nPort = nPort;
+
+			DEBUG_PRINTF("i=%d, local_port=%d[%x], callback=%p", i, nPort, nPort, reinterpret_cast<void *>(callback));
 			break;
 		}
 	}
 
-	if (i == max::PORTS_ALLOWED) {
-		perror("i == max::PORTS_ALLOWED");
+	if (i == UDP_MAX_PORTS_ALLOWED) {
+		perror("i == UDP_MAX_PORTS_ALLOWED");
 		exit(EXIT_FAILURE);
-		//return -1;
 	}
 
 	DEBUG_PRINTF("i=%d, nPort=%d", i, nPort);
@@ -236,16 +259,14 @@ int32_t Network::Begin(uint16_t nPort) {
 /**
  * BEGIN - needed H3 code compatibility
  */
-	s_ports_allowed[i] = nPort;
-
-	for (uint32_t i = 0; i < max::PORTS_ALLOWED; i++) {
-		DEBUG_PRINTF("s_ports_allowed[%2u]=%4u", i, s_ports_allowed[i]);
+	for (uint32_t i = 0; i < UDP_MAX_PORTS_ALLOWED; i++) {
+		DEBUG_PRINTF("s_Ports[%2u].info.nPort=%4u", i, s_Ports[i].info.nPort);
 	}
 /**
  * END
  */
 
-	snHandles[i] = nSocket;
+	s_Ports[i].nSocket = nSocket;
 
 	DEBUG_PRINTF("nSocket=%d", nSocket);
 	DEBUG_EXIT
@@ -253,7 +274,7 @@ int32_t Network::Begin(uint16_t nPort) {
 }
 
 void Network::MacAddressCopyTo(uint8_t* pMacAddress) {
-	for (unsigned i =  0; i < network::MAC_SIZE; i++) {
+	for (unsigned i =  0; i < net::MAC_SIZE; i++) {
 		pMacAddress[i] = m_aNetMacaddr[i];
 	}
 }
@@ -265,23 +286,18 @@ int32_t Network::End(uint16_t nPort) {
  * BEGIN - needed H3 code compatibility
  */
 
-	for (uint32_t i = 0; i < max::PORTS_ALLOWED; i++) {
-		DEBUG_PRINTF("s_ports_allowed[%2u]=%4u", i, s_ports_allowed[i]);
+	for (uint32_t i = 0; i < UDP_MAX_PORTS_ALLOWED; i++) {
+		DEBUG_PRINTF("s_Ports[%2u].info.nPort=%4u", i, s_Ports[i].info.nPort);
 	}
 
-	uint32_t i;
+	for (auto i = 0; i < UDP_MAX_PORTS_ALLOWED; i++) {
+		auto& portInfo = s_Ports[i].info;
 
-	for (i = 0; i < max::PORTS_ALLOWED; i++) {
-		if (s_ports_allowed[i] == nPort) {
-			s_ports_allowed[i] = 0;
-			puts("close");
+		if (portInfo.nPort == nPort) {
+			portInfo.callback = nullptr;
+			portInfo.nPort = 0;
 
-			if (close(snHandles[i]) == -1) {
-				perror("unbind");
-				exit(EXIT_FAILURE);
-			}
-
-			snHandles[i] = -1;
+			s_Ports[i].nSocket = -1;
 			return 0;
 		}
 	}
@@ -294,7 +310,7 @@ int32_t Network::End(uint16_t nPort) {
  */
 }
 
-void Network::SetIp(__attribute__((unused)) uint32_t nIp) {
+void Network::SetIp([[maybe_unused]] uint32_t nIp) {
 #if defined(__linux__)
 	if (nIp == m_nLocalIp) {
 		return;
@@ -340,13 +356,13 @@ void Network::SetIp(__attribute__((unused)) uint32_t nIp) {
 #endif
 }
 
-void Network::SetNetmask(__attribute__((unused)) uint32_t nNetmask) {
+void Network::SetNetmask([[maybe_unused]] uint32_t nNetmask) {
 #if defined(__linux__)
 	m_nNetmask = nNetmask;
 #endif
 }
 
-void Network::SetGatewayIp(__attribute__((unused)) uint32_t nGatewayIp) {
+void Network::SetGatewayIp([[maybe_unused]] uint32_t nGatewayIp) {
 #if defined(__linux__)
 	m_nGatewayIp = nGatewayIp;
 #endif
@@ -379,7 +395,7 @@ void Network::LeaveGroup(int32_t nHandle, uint32_t ip) {
 	}
 }
 
-uint16_t Network::RecvFrom(int32_t nHandle, void *pPacket, uint16_t nSize, uint32_t *pFromIp, uint16_t *pFromPort) {
+uint32_t Network::RecvFrom(int32_t nHandle, void *pPacket, uint32_t nSize, uint32_t *pFromIp, uint16_t *pFromPort) {
 	assert(pPacket != nullptr);
 	assert(pFromIp != nullptr);
 	assert(pFromPort != nullptr);
@@ -403,12 +419,12 @@ uint16_t Network::RecvFrom(int32_t nHandle, void *pPacket, uint16_t nSize, uint3
 	return recv_len;
 }
 
-uint16_t Network::RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort) {
+uint32_t Network::RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort) {
 	*ppBuffer = &s_ReadBuffer;
 	return RecvFrom(nHandle, s_ReadBuffer, MAX_SEGMENT_LENGTH, pFromIp, pFromPort);
 }
 
-void Network::SendTo(int32_t nHandle, const void *pPacket, uint16_t nSize, uint32_t nToIp, uint16_t nRemotePort) {
+void Network::SendTo(int32_t nHandle, const void *pPacket, uint32_t nSize, uint32_t nToIp, uint16_t nRemotePort) {
 	struct sockaddr_in si_other;
 	socklen_t slen = sizeof(si_other);
 
@@ -551,7 +567,7 @@ int Network::IfDetails(const char *pIfInterface) {
     }
 
 	const uint8_t* mac = reinterpret_cast<uint8_t*>(ifr.ifr_ifru.ifru_hwaddr.sa_data);
-	memcpy(m_aNetMacaddr, mac, network::MAC_SIZE);
+	memcpy(m_aNetMacaddr, mac, net::MAC_SIZE);
 #endif
 
     close(fd);
@@ -568,63 +584,8 @@ void Network::SetHostName(const char *pHostName) {
 		perror("gethostname");
 	}
 
-	m_aHostName[network::HOSTNAME_SIZE - 1] = '\0';
+	m_aHostName[net::HOSTNAME_SIZE - 1] = '\0';
 
-}
-
-// COMMON
-
-void Network::SetQueuedStaticIp(uint32_t nLocalIp, uint32_t nNetmask) {
-	DEBUG_ENTRY
-	DEBUG_PRINTF(IPSTR ", nNetmask=" IPSTR, IP2STR(nLocalIp), IP2STR(nNetmask));
-
-	if (nLocalIp != 0) {
-		m_QueuedConfig.nLocalIp = nLocalIp;
-	}
-
-	if (nNetmask != 0) {
-		m_QueuedConfig.nNetmask = nNetmask;
-	}
-
-	m_QueuedConfig.nMask |= QueuedConfig::STATIC_IP;
-	m_QueuedConfig.nMask |= QueuedConfig::NET_MASK;
-
-	DEBUG_EXIT
-}
-
-bool Network::ApplyQueuedConfig() {
-	DEBUG_ENTRY
-	DEBUG_PRINTF("m_QueuedConfig.nMask=%x, " IPSTR ", " IPSTR, m_QueuedConfig.nMask, IP2STR(m_QueuedConfig.nLocalIp), IP2STR(m_QueuedConfig.nNetmask));
-
-	if (m_QueuedConfig.nMask == QueuedConfig::NONE) {
-		DEBUG_EXIT
-		return false;
-	}
-
-	if ((isQueuedMaskSet(QueuedConfig::STATIC_IP)) || (isQueuedMaskSet(QueuedConfig::NET_MASK))) {
-		if (isQueuedMaskSet(QueuedConfig::NET_MASK)) {
-			SetNetmask(m_QueuedConfig.nNetmask);
-			m_QueuedConfig.nMask &= ~(QueuedConfig::NET_MASK);
-		}
-
-		if (isQueuedMaskSet(QueuedConfig::STATIC_IP)) {
-			SetIp(m_QueuedConfig.nLocalIp);
-			m_QueuedConfig.nMask &= ~(QueuedConfig::STATIC_IP);
-		}
-	}
-
-	if (isQueuedMaskSet(QueuedConfig::DHCP)) {
-		EnableDhcp();
-		m_QueuedConfig.nMask &= ~(QueuedConfig::DHCP);
-	}
-
-	if (isQueuedMaskSet(QueuedConfig::ZEROCONF)) {
-		SetZeroconf();
-		m_QueuedConfig.nMask &= ~(QueuedConfig::ZEROCONF);
-	}
-
-	DEBUG_EXIT
-	return true;
 }
 
 void Network::Print() {
@@ -639,3 +600,27 @@ void Network::Print() {
 	printf(" Mac       : " MACSTR "\n", MAC2STR(m_aNetMacaddr));
 	printf(" Mode      : %c\n", GetAddressingMode());
 }
+
+namespace net {
+void tcp_run();
+}  // namespace net
+
+void Network::Run() {
+	for (uint32_t nPortIndex = 0; nPortIndex < UDP_MAX_PORTS_ALLOWED; nPortIndex++) {
+		struct sockaddr_in si_other;
+		socklen_t slen = sizeof(si_other);
+
+		const auto& portInfo = s_Ports[nPortIndex].info;
+
+		if (portInfo.callback != nullptr) {
+			uint8_t data[MAX_SEGMENT_LENGTH];
+			int nDataLength;
+			if ((nDataLength = recvfrom(s_Ports[nPortIndex].nSocket, data, MAX_SEGMENT_LENGTH, 0, reinterpret_cast<struct sockaddr*>(&si_other), &slen)) > 0) {
+				portInfo.callback(data, nDataLength, si_other.sin_addr.s_addr, ntohs(si_other.sin_port));
+			}
+		}
+	}
+
+	net::tcp_run();
+}
+#endif

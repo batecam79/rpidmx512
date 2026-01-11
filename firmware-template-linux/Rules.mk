@@ -27,7 +27,6 @@ include ../firmware-template/libs.mk
 TTT=uuid
 TMPVAR:=$(LIBS)
 LIBS=$(filter-out $(TTT), $(TMPVAR))
-LIBS+=debug
 LDLIBS=
 
 DEFINES:=$(addprefix -D,$(DEFINES))
@@ -42,6 +41,10 @@ ifeq ($(findstring ARTNET_VERSION=4,$(DEFINES)),ARTNET_VERSION=4)
 	ifeq ($(findstring ARTNET_HAVE_DMXIN,$(DEFINES)),ARTNET_HAVE_DMXIN)
 		DEFINES+=-DE131_HAVE_DMXIN
 	endif
+endif
+
+ifneq ($(findstring _TIME_STAMP_YEAR_,$(DEFINES)), _TIME_STAMP_YEAR_)
+	DEFINES+=-D_TIME_STAMP_YEAR_=$(shell date  +"%Y") -D_TIME_STAMP_MONTH_=$(shell date  +"%-m") -D_TIME_STAMP_DAY_=$(shell date  +"%-d")
 endif
 
 # The variable for the firmware include directories
@@ -101,12 +104,7 @@ else
 	COPS+=-Wduplicated-cond -Wlogical-op #-Wduplicated-branches
 #	CCPOPS+=-Wuseless-cast -Wold-style-cast
 endif
-
-ifeq ($(detected_OS),Cygwin)
-	CCPOPS+=-std=gnu++11
-else
-	CCPOPS+=-std=c++11
-endif
+CCPOPS+=-std=c++20
 
 COPS+=-ffunction-sections -fdata-sections
 
@@ -165,7 +163,7 @@ $(BUILD_DIRS) :
 		
 $(CURR_DIR) : Makefile $(LINKER) $(OBJECTS) $(LIBDEP)
 	$(info $$TARGET [${TARGET}])
-	$(CPP) $(OBJECTS) -o $(CURR_DIR) $(LIB) $(LDLIBS) -luuid -lpthread
+	$(CPP) $(OBJECTS) -o $(CURR_DIR) $(LIB) $(LDLIBS) -luuid -lpthread -lz
 	$(PREFIX)objdump -d $(TARGET) | $(PREFIX)c++filt > linux.lst
 
 $(foreach bdir,$(SRCDIR),$(eval $(call compile-objects,$(bdir))))

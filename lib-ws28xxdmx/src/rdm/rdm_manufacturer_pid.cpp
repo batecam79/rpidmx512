@@ -23,6 +23,10 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_PIXELDMX)
+# undef NDEBUG
+#endif
+
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -147,30 +151,35 @@ uint32_t RDMHandler::GetParameterDescriptionCount() const {
 #include "ws28xxdmx.h"
 
 namespace rdm {
-bool handle_manufactureer_pid_get(const uint16_t nPid, __attribute__((unused)) const ManufacturerParamData *pIn, ManufacturerParamData *pOut, uint16_t& nReason) {
+bool handle_manufactureer_pid_get(const uint16_t nPid, [[maybe_unused]] const ManufacturerParamData *pIn, ManufacturerParamData *pOut, uint16_t& nReason) {
+	DEBUG_PRINTF("nPid=%x", __builtin_bswap16(nPid));
+
+	auto &pixelConfiguration = PixelConfiguration::Get();
+	auto &pixelDmxConfiguration = PixelDmxConfiguration::Get();
+
 	switch (nPid) {
 	case rdm::E120_MANUFACTURER_PIXEL_TYPE::code: {
-		const auto *pString = ::PixelType::GetType(WS28xxDmx::Get()->GetType());
+		const auto *pString = ::pixel::pixel_get_type(pixelConfiguration.GetType());
 		pOut->nPdl = static_cast<uint8_t>(strlen(pString));
 		memcpy(pOut->pParamData, pString, pOut->nPdl);
 		return true;
 	}
 	case rdm::E120_MANUFACTURER_PIXEL_COUNT::code: {
-		const auto nCount = WS28xxDmx::Get()->GetCount();
+		const auto nCount = pixelConfiguration.GetCount();
 		pOut->nPdl = 2;
 		pOut->pParamData[0] = static_cast<uint8_t>(nCount >> 8);
 		pOut->pParamData[1] = static_cast<uint8_t>(nCount);
 		return true;
 	}
 	case rdm::E120_MANUFACTURER_PIXEL_GROUPING_COUNT::code: {
-		const auto nGroupingCount = WS28xxDmx::Get()->GetGroupingCount();
+		const auto nGroupingCount = pixelDmxConfiguration.GetGroupingCount();
 		pOut->nPdl = 2;
 		pOut->pParamData[0] = static_cast<uint8_t>(nGroupingCount >> 8);
 		pOut->pParamData[1] = static_cast<uint8_t>(nGroupingCount);
 		return true;
 	}
 	case rdm::E120_MANUFACTURER_PIXEL_MAP::code: {
-		const auto *pString = ::PixelType::GetMap(WS28xxDmx::Get()->GetMap());
+		const auto *pString = ::pixel::pixel_get_map(pixelConfiguration.GetMap());
 		pOut->nPdl = static_cast<uint8_t>(strlen(pString));
 		memcpy(pOut->pParamData, pString, pOut->nPdl);
 		return true;
@@ -184,7 +193,9 @@ bool handle_manufactureer_pid_get(const uint16_t nPid, __attribute__((unused)) c
 }
 #if defined (CONFIG_RDM_MANUFACTURER_PIDS_SET)
 // C++ attribute: maybe_unused (since C++17)
-bool handle_manufactureer_pid_set(const bool isBroadcast, const uint16_t nPid, const rdm::ParameterDescription &parameterDescription, const ManufacturerParamData *pIn, __attribute__((unused)) ManufacturerParamData *pOut, uint16_t& nReason) {
+bool handle_manufactureer_pid_set(const bool isBroadcast, const uint16_t nPid, const rdm::ParameterDescription &parameterDescription, const ManufacturerParamData *pIn, [[maybe_unused]] ManufacturerParamData *pOut, uint16_t& nReason) {
+	DEBUG_PRINTF("nPid=%x", __builtin_bswap16(nPid));
+
 	if (isBroadcast) {
 		return false;
 	}
@@ -224,7 +235,7 @@ bool handle_manufactureer_pid_set(const bool isBroadcast, const uint16_t nPid, c
 	}
 	case rdm::E120_MANUFACTURER_PIXEL_MAP::code: {
 		if (pIn->nPdl == 3) {
-			const auto map = ::PixelType::GetMap(reinterpret_cast<const char *>(pIn->pParamData));
+			const auto map = ::pixel::pixel_get_map(reinterpret_cast<const char *>(pIn->pParamData));
 
 			if (map == pixel::Map::UNDEFINED) {
 				nReason = E120_NR_DATA_OUT_OF_RANGE;

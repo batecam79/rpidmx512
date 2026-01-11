@@ -2,7 +2,7 @@
  * @file display.h
  *
  */
-/* Copyright (C) 2017-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2017-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,16 +30,32 @@
 # error
 #endif
 
+#if defined(__GNUC__) && !defined(__clang__)
+# if defined (CONFIG_I2C_LCD_OPTIMIZE_O2) || defined (CONFIG_I2C_LCD_OPTIMIZE_O3)
+#  pragma GCC push_options
+#  if defined (CONFIG_I2C_LCD_OPTIMIZE_O2)
+#   pragma GCC optimize ("O2")
+#  else
+#   pragma GCC optimize ("O3")
+#  endif
+#  pragma GCC optimize ("no-tree-loop-distribute-patterns")
+#  pragma GCC optimize ("-fprefetch-loop-arrays")
+# endif
+#endif
+
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cassert>
 
 #include "displayset.h"
-#include "display7segment.h"
+
+#include "hardware.h"
 
 #include "hal_i2c.h"
-#include "hardware.h"
+#if defined (DISPLAYTIMEOUT_GPIO)
+# include "hal_gpio.h"
+#endif
 
 namespace display {
 enum class Type {
@@ -182,20 +198,14 @@ public:
 		Write(nRows, pText);
 	}
 
-	void TextStatus(const char *pText, Display7SegmentMessage message, uint32_t nConsoleColor = UINT32_MAX) {
+	void TextStatus(const char *pText, uint32_t nConsoleColor) {
 		TextStatus(pText);
-		Status(message);
 
 		if (nConsoleColor == UINT32_MAX) {
 			return;
 		}
 
 		console_status(nConsoleColor, pText);
-	}
-
-	void TextStatus(const char *pText, uint32_t nValue7Segment, bool bHex = false) {
-		TextStatus(pText);
-		Status(nValue7Segment, bHex);
 	}
 
 	void SetCursor(uint32_t nMode) {
@@ -212,14 +222,6 @@ public:
 		}
 
 		m_LcdDisplay->SetCursorPos(nCol, nRow);
-	}
-
-	void SetSleepTimeout(uint32_t nSleepTimeout = display::Defaults::SEEP_TIMEOUT) {
-		m_nSleepTimeout = 1000U * 60U * nSleepTimeout;
-	}
-
-	uint32_t GetSleepTimeout() const {
-		return m_nSleepTimeout / 1000U / 60U;
 	}
 
 	void SetContrast(uint8_t nContrast) {
@@ -274,34 +276,12 @@ public:
 		return m_LcdDisplay->GetRows();
 	}
 
-	void Status(Display7SegmentMessage nData) {
-		if (m_bHave7Segment) {
-			m_I2C.WriteRegister(display::segment7::MCP23017_GPIOA, static_cast<uint16_t>(~static_cast<uint16_t>(nData)));
-		}
-	}
-
-	void Status(uint32_t nValue, bool bHex) {
-		if (m_bHave7Segment) {
-			uint16_t nData;
-
-			if (!bHex) {
-				nData = GetData(nValue / 10);
-				nData = static_cast<uint16_t>(nData | GetData(nValue % 10) << 8U);
-			} else {
-				nData = GetData(nValue & 0x0F);
-				nData = static_cast<uint16_t>(nData | GetData((nValue >> 4) & 0x0F) << 8U);
-			}
-
-			m_I2C.WriteRegister(display::segment7::MCP23017_GPIOA, static_cast<uint16_t>(~nData));
-		}
-	}
-
 	void Progress() {
 		static constexpr char SYMBOLS[] = { '/' , '-', '\\' , '|' };
 		static uint32_t nSymbolsIndex;
 
-		Display::Get()->SetCursorPos(Display::Get()->GetColumns() - 1U, Display::Get()->GetRows() - 1U);
-		Display::Get()->PutChar(SYMBOLS[nSymbolsIndex++]);
+		SetCursorPos(GetColumns() - 1U, GetRows() - 1U);
+		PutChar(SYMBOLS[nSymbolsIndex++]);
 
 		if (nSymbolsIndex >= sizeof(SYMBOLS)) {
 			nSymbolsIndex = 0;
@@ -318,7 +298,7 @@ public:
 		m_LcdDisplay->SetSleep(bSleep);
 
 		if (!bSleep) {
-			m_nMillis = Hardware::Get()->Millis();
+			SetSleepTimer(m_nSleepTimeout != 0);
 		}
 	}
 
@@ -326,108 +306,57 @@ public:
 		return m_bIsSleep;
 	}
 
+	void SetSleepTimeout(uint32_t nSleepTimeout = display::Defaults::SLEEP_TIMEOUT) {
+		m_nSleepTimeout = 1000U * 60U * nSleepTimeout;
+		SetSleepTimer(m_nSleepTimeout != 0);
+	}
+
+	uint32_t GetSleepTimeout() const {
+		return m_nSleepTimeout / 1000U / 60U;
+	}
+
 	void Run() {
 		if (m_nSleepTimeout == 0) {
 			return;
 		}
 
-		if (!m_bIsSleep) {
-			if (__builtin_expect(((Hardware::Get()->Millis() - m_nMillis) > m_nSleepTimeout), 0)) {
-				SetSleep(true);
-			}
-		} else {
-			if (__builtin_expect((display::timeout::gpio_renew()), 0)) {
+		if (m_bIsSleep) {
+#if defined (DISPLAYTIMEOUT_GPIO)
+			if (__builtin_expect(((FUNC_PREFIX(gpio_lev(DISPLAYTIMEOUT_GPIO)) == 0)), 0)) {
 				SetSleep(false);
 			}
+#endif
 		}
 	}
 
-	static Display* Get() {
+	static Display *Get() {
 		return s_pThis;
 	}
 
 private:
 	void Detect(display::Type tDisplayType);
 	void Detect(uint32_t nRows);
-	void Detect7Segment() {
-		m_bHave7Segment = m_I2C.IsConnected();
-
-		if (m_bHave7Segment) {
-			m_I2C.WriteRegister(display::segment7::MCP23017_IODIRA, static_cast<uint16_t>(0x0000)); // All output
-			Status(Display7SegmentMessage::INFO_STARTUP);
-		}
-	}
-
-	uint16_t GetData(const uint32_t nHexValue) const {
-		switch (nHexValue) {
-		case 0:
-			return display7segment::CH_0;
-			break;
-		case 1:
-			return display7segment::CH_1;
-			break;
-		case 2:
-			return display7segment::CH_2;
-			break;
-		case 3:
-			return display7segment::CH_3;
-			break;
-		case 4:
-			return display7segment::CH_4;
-			break;
-		case 5:
-			return display7segment::CH_5;
-			break;
-		case 6:
-			return display7segment::CH_6;
-			break;
-		case 7:
-			return display7segment::CH_7;
-			break;
-		case 8:
-			return display7segment::CH_8;
-			break;
-		case 9:
-			return display7segment::CH_9;
-			break;
-		case 0xa:
-			return display7segment::CH_A;
-			break;
-		case 0xb:
-			return display7segment::CH_B;
-			break;
-		case 0xc:
-			return display7segment::CH_C;
-			break;
-		case 0xd:
-			return display7segment::CH_D;
-			break;
-		case 0xe:
-			return display7segment::CH_E;
-			break;
-		case 0xf:
-			return display7segment::CH_F;
-			break;
-		default:
-			break;
-		}
-
-		return display7segment::CH_BLANK;
-	}
+	void SetSleepTimer(const bool bActive);
 
 private:
 	display::Type m_tType { display::Type::UNKNOWN };
-	uint32_t m_nMillis { 0 };
 	HAL_I2C m_I2C;
-	bool m_bIsSleep { false };
-	bool m_bHave7Segment { false };
-	uint32_t m_nSleepTimeout { 1000 * 60 * display::Defaults::SEEP_TIMEOUT };
-
+	uint32_t m_nSleepTimeout { 1000 * 60 * display::Defaults::SLEEP_TIMEOUT };
 	uint8_t m_nContrast { 0x7F };
+
+	bool m_bIsSleep { false };
 	bool m_bIsFlippedVertically { false };
+#if defined (CONFIG_DISPLAY_HAVE_7SEGMENT)
+	bool m_bHave7Segment { false };
+#endif
 
 	DisplaySet *m_LcdDisplay { nullptr };
-	static Display *s_pThis;
+	static inline Display *s_pThis;
 };
 
+#if defined(__GNUC__) && !defined(__clang__)
+# if defined (CONFIG_I2C_LCD_OPTIMIZE)
+#  pragma GCC pop_options
+# endif
+# endif
 #endif /* I2C_DISPLAY_H_ */

@@ -2,7 +2,7 @@
  * @file dmxserialhandleudp.cpp
  *
  */
-/* Copyright (C) 2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,6 +33,7 @@
 
 #include "hardware.h"
 #include "network.h"
+#include "net/protocol/udp.h"
 
 #include "debug.h"
 
@@ -52,68 +53,63 @@ namespace length {
 	static constexpr auto REQUEST_DELETE = sizeof(cmd::REQUEST_DELETE) - 1;
 }
 
-static char s_UdpBuffer[UDP::BUFFER_SIZE] __attribute__ ((aligned (4)));
-
-void DmxSerial::HandleUdp() {
-	uint16_t nForeignPort;
-	uint32_t nIPAddressFrom;
-
-	auto nBytesReceived = Network::Get()->RecvFrom(m_nHandle, s_UdpBuffer, UDP::BUFFER_SIZE, &nIPAddressFrom, &nForeignPort);
-
-	if (__builtin_expect((nBytesReceived < 6), 1)) {
+void DmxSerial::Input(const uint8_t *p, uint32_t nSize, uint32_t nFromIp, [[maybe_unused]] uint16_t nFromPort) {
+	if (__builtin_expect((nSize < 6), 0)) {
 		return;
 	}
 
-	if (s_UdpBuffer[nBytesReceived - 1] == '\n') {
-		nBytesReceived--;
+	auto *pBuffer = const_cast<uint8_t *>(p);
+
+	if (pBuffer[nSize - 1] == '\n') {
+		nSize--;
 	}
 
 #ifndef NDEBUG
-	debug_dump(s_UdpBuffer, nBytesReceived);
+	debug_dump(pBuffer, nSize);
 #endif
 
-	if (memcmp(s_UdpBuffer, cmd::REQUEST_FILES, length::REQUEST_FILES) == 0) {
+	if (memcmp(pBuffer, cmd::REQUEST_FILES, length::REQUEST_FILES) == 0) {
 		for (uint32_t i = 0; i < m_nFilesCount; i++) {
-			const auto nLength = snprintf(s_UdpBuffer, sizeof(s_UdpBuffer) - 1, DMXSERIAL_FILE_PREFIX "%.3d" DMXSERIAL_FILE_SUFFIX "\n", m_aFileIndex[i]);
-			Network::Get()->SendTo(m_nHandle, s_UdpBuffer, static_cast<uint16_t>(nLength), nIPAddressFrom, UDP::PORT);
+			const auto nLength = snprintf(reinterpret_cast<char *>(pBuffer), UDP_DATA_SIZE - 1, DMXSERIAL_FILE_PREFIX "%.3d" DMXSERIAL_FILE_SUFFIX "\n", m_aFileIndex[i]);
+			Network::Get()->SendTo(m_nHandle, pBuffer, nLength, nFromIp, UDP::PORT);
 		}
 		return;
 	}
 
-	if ((nBytesReceived >= length::GET_TFTP) && (memcmp(s_UdpBuffer, cmd::GET_TFTP, length::GET_TFTP) == 0)) {
-		if (nBytesReceived == length::GET_TFTP) {
-			const auto nLength = snprintf(s_UdpBuffer, UDP::BUFFER_SIZE - 1, "tftp:%s\n", m_bEnableTFTP ? "On" : "Off");
-			Network::Get()->SendTo(m_nHandle, s_UdpBuffer, static_cast<uint16_t>(nLength), nIPAddressFrom, UDP::PORT);
+	if ((nSize >= length::GET_TFTP) && (memcmp(pBuffer, cmd::GET_TFTP, length::GET_TFTP) == 0)) {
+		if (nSize == length::GET_TFTP) {
+			const auto nLength = snprintf(reinterpret_cast<char *>(pBuffer), UDP_DATA_SIZE - 1, "tftp:%s\n", m_bEnableTFTP ? "On" : "Off");
+			Network::Get()->SendTo(m_nHandle, pBuffer,nLength, nFromIp, UDP::PORT);
 			return;
 		}
 
-		if (nBytesReceived == length::GET_TFTP + 3) {
-			if (memcmp(&s_UdpBuffer[length::GET_TFTP], "bin", 3) == 0) {
-				Network::Get()->SendTo(m_nHandle, &m_bEnableTFTP, sizeof(bool) , nIPAddressFrom, UDP::PORT);
+		if (nSize == length::GET_TFTP + 3) {
+			if (memcmp(&pBuffer[length::GET_TFTP], "bin", 3) == 0) {
+				Network::Get()->SendTo(m_nHandle, &m_bEnableTFTP, sizeof(bool) , nFromIp, UDP::PORT);
 				return;
 			}
 		}
 	}
 
-	if ((nBytesReceived == length::SET_TFTP + 1) && (memcmp(s_UdpBuffer, cmd::SET_TFTP, length::SET_TFTP) == 0)) {
-		EnableTFTP(s_UdpBuffer[length::SET_TFTP] != '0');
+	if ((nSize == length::SET_TFTP + 1) && (memcmp(pBuffer, cmd::SET_TFTP, length::SET_TFTP) == 0)) {
+		EnableTFTP(pBuffer[length::SET_TFTP] != '0');
 		return;
 	}
 
-	if (memcmp(s_UdpBuffer, cmd::REQUEST_RELOAD, length::REQUEST_RELOAD) == 0) {
+	if (memcmp(pBuffer, cmd::REQUEST_RELOAD, length::REQUEST_RELOAD) == 0) {
 		Hardware::Get()->Reboot();
 		return;
 	}
 
-	if ((nBytesReceived == length::REQUEST_DELETE + 3) && (memcmp(s_UdpBuffer, cmd::REQUEST_DELETE, length::REQUEST_DELETE) == 0)) {
-		s_UdpBuffer[length::REQUEST_DELETE + 3] = '\0';
+	if ((nSize == length::REQUEST_DELETE + 3) && (memcmp(pBuffer, cmd::REQUEST_DELETE, length::REQUEST_DELETE) == 0)) {
+		pBuffer[length::REQUEST_DELETE + 3] = '\0';
 
-		if (DmxSerial::Get()->DeleteFile(&s_UdpBuffer[length::REQUEST_DELETE])) {
-			Network::Get()->SendTo(m_nHandle, "Success\n",  8, nIPAddressFrom, UDP::PORT);
+		if (DmxSerial::Get()->DeleteFile(reinterpret_cast<char *>(&pBuffer[length::REQUEST_DELETE]))) {
+			Network::Get()->SendTo(m_nHandle, "Success\n",  8, nFromIp, UDP::PORT);
 		} else {
 			const auto *pError = strerror(errno);
-			const auto nLength = snprintf(s_UdpBuffer, UDP::BUFFER_SIZE - 1, "%s\n", pError);
-			Network::Get()->SendTo(m_nHandle, s_UdpBuffer, static_cast<uint16_t>(nLength), nIPAddressFrom, UDP::PORT);
+			const auto nLength = snprintf(reinterpret_cast<char *>(pBuffer), UDP_DATA_SIZE - 1, "%s\n", pError);
+			Network::Get()->SendTo(m_nHandle, pBuffer, nLength, nFromIp, UDP::PORT);
 		}
 		return;
 	}

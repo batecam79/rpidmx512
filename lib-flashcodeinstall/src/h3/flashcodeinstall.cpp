@@ -2,7 +2,7 @@
  * @file flashcodeinstall.cpp
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,7 @@
 
 #include "flashcodeinstall.h"
 #include "flashcodeinstallparams.h"
+#include "firmware.h"
 
 #include "display.h"
 
@@ -59,7 +60,7 @@ FlashCodeInstall::FlashCodeInstall() {
 	Display::Get()->Cls();
 
 	if (!FlashCode::IsDetected()) {
-		Display::Get()->TextStatus("No SPI flash", Display7SegmentMessage::INFO_SPI_NONE);
+		Display::Get()->TextStatus("No SPI flash");
 		DEBUG_PUTS("No SPI flash chip");
 	} else {
 		m_nFlashSize = FlashCode::GetSize();
@@ -113,15 +114,15 @@ FlashCodeInstall::~FlashCodeInstall() {
 
 void FlashCodeInstall::Process(const char *pFileName, uint32_t nOffset) {
 	if (Open(pFileName)) {
-		Display::Get()->TextStatus(aCheckDifference, Display7SegmentMessage::INFO_SPI_CHECK);
+		Display::Get()->TextStatus(aCheckDifference);
 		puts(aCheckDifference);
 
 		if (Diff(nOffset)) {
-			Display::Get()->TextStatus(aWriting, Display7SegmentMessage::INFO_SPI_WRITING);
+			Display::Get()->TextStatus(aWriting);
 			puts(aWriting);
 			Write(nOffset);
 		} else {
-			Display::Get()->TextStatus(aNoDifference, Display7SegmentMessage::INFO_SPI_NODIFF);
+			Display::Get()->TextStatus(aNoDifference);
 			puts(aNoDifference);
 		}
 		Close();
@@ -156,14 +157,14 @@ void FlashCodeInstall::Close() {
 	static_cast<void>(fclose(m_pFile));
 	m_pFile = nullptr;
 
-	Display::Get()->TextStatus(aDone, Display7SegmentMessage::INFO_SPI_DONE);
+	Display::Get()->TextStatus(aDone);
 	puts(aDone);
 
 	DEBUG_EXIT
 }
 
 bool FlashCodeInstall::BuffersCompare(uint32_t nSize) {
-	DEBUG1_ENTRY
+	DEBUG_ENTRY
 
 	assert(nSize <= m_nEraseSize);
 
@@ -175,7 +176,7 @@ bool FlashCodeInstall::BuffersCompare(uint32_t nSize) {
 
 	while (nSize >= 4) {
 		if (*pSrc32++ != *pDst32++) {
-			DEBUG1_EXIT
+			DEBUG_EXIT
 			return false;
 		}
 		nSize -= 4;
@@ -186,12 +187,12 @@ bool FlashCodeInstall::BuffersCompare(uint32_t nSize) {
 
 	while (nSize--) {
 		if (*pSrc8++ != *pDst8++) {
-			DEBUG1_EXIT
+			DEBUG_EXIT
 			return false;
 		}
 	}
 
-	DEBUG1_EXIT
+	DEBUG_EXIT
 	return true;
 }
 

@@ -2,7 +2,7 @@
  * @file ssd1311.cpp
  *
  */
-/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,10 +23,10 @@
  * THE SOFTWARE.
  */
 
-#include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cassert>
 
 #include "i2c/ssd1311.h"
 
@@ -56,8 +56,6 @@ using namespace ssd1311;
 
 static uint8_t _ClearBuffer[1 + MAX_COLUMNS] __attribute__((aligned(4)));
 static uint8_t _TextBuffer[1 + MAX_COLUMNS] __attribute__((aligned(4)));
-
-Ssd1311 *Ssd1311::s_pThis = nullptr;
 
 Ssd1311::Ssd1311(): m_I2C(DEFAULT_I2C_ADDRESS) {
 	assert(s_pThis == nullptr);
@@ -101,7 +99,7 @@ bool Ssd1311::Start() {
 }
 
 void Ssd1311::PrintInfo() {
-	printf("SSD1311 (%d,%d)\n", m_nRows, m_nCols);
+	printf("SSD1311 (%u,%u)\n", static_cast<unsigned int>(m_nRows), static_cast<unsigned int>(m_nCols));
 }
 
 void Ssd1311::Cls() {
@@ -338,7 +336,7 @@ void Ssd1311::SetContrast(uint8_t nContrast) {
 #if defined(CONFIG_DISPLAY_ENABLE_CURSOR_MODE)
 # define UNUSED
 #else
-# define UNUSED __attribute__((unused))
+# define UNUSED [[maybe_unused]]
 #endif
 
 void Ssd1311::SetCursor(UNUSED uint32_t nMode) {

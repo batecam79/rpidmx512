@@ -2,7 +2,7 @@
  * @file ltcdisplayparams.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,11 +22,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
-#endif
 
 #include <cstdint>
 #include <cstring>
@@ -95,7 +90,7 @@ void LtcDisplayParams::Load() {
 	m_Params.nSetList = 0;
 
 #if !defined(DISABLE_FS)
-	ReadConfigFile configfile(LtcDisplayParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(LtcDisplayParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(LtcDisplayParamsConst::FILE_NAME)) {
 		LtcDisplayParamsStore::Update(&m_Params);
@@ -117,7 +112,7 @@ void LtcDisplayParams::Load(const char *pBuffer, uint32_t nLength) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(LtcDisplayParams::staticCallbackFunction, this);
+	ReadConfigFile config(LtcDisplayParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
@@ -202,7 +197,7 @@ void LtcDisplayParams::callbackFunction(const char *pLine) {
 
 	if (Sscan::Char(pLine, DevicesParamsConst::TYPE, aBuffer, nLength) == Sscan::OK) {
 		aBuffer[nLength] = '\0';
-		const auto type = PixelType::GetType(aBuffer);
+		const auto type = pixel::pixel_get_type(aBuffer);
 
 		if (type != pixel::Type::UNDEFINED) {
 			m_Params.nWS28xxType = static_cast<uint8_t>(type);
@@ -218,7 +213,7 @@ void LtcDisplayParams::callbackFunction(const char *pLine) {
 	if (Sscan::Char(pLine, DevicesParamsConst::MAP, aBuffer, nLength) == Sscan::OK) {
 		aBuffer[nLength] = '\0';
 		pixel::Map tMapping;
-		if ((tMapping = PixelType::GetMap(aBuffer)) != pixel::Map::UNDEFINED) {
+		if ((tMapping = pixel::pixel_get_map(aBuffer)) != pixel::Map::UNDEFINED) {
 			m_Params.nWS28xxRgbMapping = static_cast<uint8_t>(tMapping);
 			m_Params.nSetList |= ltcdisplayparams::Mask::WS28XX_RGB_MAPPING;
 		}
@@ -297,13 +292,13 @@ void LtcDisplayParams::Builder(const struct ltcdisplayparams::Params *ptLtcDispl
 #if !defined (CONFIG_LTC_DISABLE_WS28XX)
 	builder.AddComment("WS28xx (specific)");
 	builder.Add(LtcDisplayParamsConst::WS28XX_TYPE, m_Params.nWS28xxDisplayType == static_cast<uint8_t>(ltcdisplayrgb::WS28xxType::SEGMENT) ? "7segment" : "matrix" , isMaskSet(ltcdisplayparams::Mask::WS28XX_DISPLAY_TYPE));
-	builder.Add(DevicesParamsConst::TYPE, PixelType::GetType(static_cast<pixel::Type>(m_Params.nWS28xxType)), isMaskSet(ltcdisplayparams::Mask::WS28XX_TYPE));
+	builder.Add(DevicesParamsConst::TYPE, pixel::pixel_get_type(static_cast<pixel::Type>(m_Params.nWS28xxType)), isMaskSet(ltcdisplayparams::Mask::WS28XX_TYPE));
 
 	builder.AddComment("Overwrite datasheet");
 	if (!isMaskSet(ltcdisplayparams::Mask::WS28XX_RGB_MAPPING)) {
-		m_Params.nWS28xxRgbMapping = static_cast<uint8_t>(PixelType::GetMap(static_cast<pixel::Type>(m_Params.nWS28xxType)));
+		m_Params.nWS28xxRgbMapping = static_cast<uint8_t>(pixel::pixel_get_map(static_cast<pixel::Type>(m_Params.nWS28xxType)));
 	}
-	builder.Add(DevicesParamsConst::MAP, PixelType::GetMap(static_cast<pixel::Map>(m_Params.nWS28xxRgbMapping)), isMaskSet(ltcdisplayparams::Mask::WS28XX_RGB_MAPPING));
+	builder.Add(DevicesParamsConst::MAP, pixel::pixel_get_map(static_cast<pixel::Map>(m_Params.nWS28xxRgbMapping)), isMaskSet(ltcdisplayparams::Mask::WS28XX_RGB_MAPPING));
 #endif
 
 #if !defined (CONFIG_LTC_DISABLE_RGB_PANEL)
@@ -341,7 +336,7 @@ void LtcDisplayParams::Set(LtcDisplayRgb *pLtcDisplayRgb) {
 	}
 }
 
-void LtcDisplayParams::staticCallbackFunction(void *p, const char *s) {
+void LtcDisplayParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 
@@ -357,11 +352,11 @@ void LtcDisplayParams::Dump() {
 
 #if !defined (CONFIG_LTC_DISABLE_WS28XX)
 	if (isMaskSet(ltcdisplayparams::Mask::WS28XX_TYPE)) {
-		printf(" %s=%s [%d]\n", DevicesParamsConst::TYPE, PixelType::GetType(static_cast<pixel::Type>(m_Params.nWS28xxType)), static_cast<int>(m_Params.nWS28xxType));
+		printf(" %s=%s [%d]\n", DevicesParamsConst::TYPE, pixel::pixel_get_type(static_cast<pixel::Type>(m_Params.nWS28xxType)), static_cast<int>(m_Params.nWS28xxType));
 	}
 
 	if (isMaskSet(ltcdisplayparams::Mask::WS28XX_RGB_MAPPING)) {
-		printf(" %s=%s [%d]\n", DevicesParamsConst::MAP, PixelType::GetMap(static_cast<pixel::Map>(m_Params.nWS28xxRgbMapping)), static_cast<int>(m_Params.nWS28xxRgbMapping));
+		printf(" %s=%s [%d]\n", DevicesParamsConst::MAP, pixel::pixel_get_map(static_cast<pixel::Map>(m_Params.nWS28xxRgbMapping)), static_cast<int>(m_Params.nWS28xxRgbMapping));
 	}
 #endif
 

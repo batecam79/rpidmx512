@@ -23,6 +23,10 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_HTTPD)
+# undef NDEBUG
+#endif
+
 #include <cstdint>
 #include <cstring>
 #include <cassert>
@@ -92,7 +96,7 @@ uint32_t get_file_content(const char *fileName, char *pDst, http::contentTypes& 
 			}
 		}
 		*p++ = c;
-		if ((p - pDst) == http::BUFSIZE) {
+		if ((p - pDst) == httpd::BUFSIZE) {
 			DEBUG_PUTS("File too long");
 			break;
 		}
@@ -103,23 +107,39 @@ uint32_t get_file_content(const char *fileName, char *pDst, http::contentTypes& 
 	DEBUG_PRINTF("%s -> %d", fileName, static_cast<int>(p - pDst));
 	return static_cast<uint32_t>(p - pDst);
 }
+
+static char s_StaticContent[httpd::BUFSIZE];
+
+const char *get_file_content(const char *pFileName, uint32_t& nSize, http::contentTypes& contentType) {
+	DEBUG_ENTRY
+	DEBUG_PUTS(pFileName);
+
+	nSize = get_file_content(pFileName, s_StaticContent, contentType);
+
+	if (nSize != 0) {
+		return s_StaticContent;
+	}
+
+	DEBUG_EXIT
+	return nullptr;
+}
 #else
-uint32_t get_file_content(const char *pFileName, char *pDst, http::contentTypes& contentType) {
+const char *get_file_content(const char *pFileName, uint32_t& nSize, http::contentTypes& contentType) {
 	DEBUG_ENTRY
 	DEBUG_PUTS(pFileName);
 
 	for (auto& content : HttpContent) {
 		if (strcmp(pFileName, content.pFileName) == 0) {
-			assert(content.nContentLength < http::BUFSIZE);
-			memcpy(pDst, content.pContent, content.nContentLength);
-
-			DEBUG_PRINTF("%s -> %d", content.pFileName, content.nContentLength);
+			nSize = content.nContentLength;
 			contentType = content.contentType;
-			return content.nContentLength;
+			return content.pContent;
 		}
 	}
 
+	nSize = 0;
+	contentType = http::contentTypes::NOT_DEFINED;
+
 	DEBUG_EXIT
-	return 0;
+	return nullptr;
 }
 #endif

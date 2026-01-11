@@ -2,7 +2,7 @@
  * @file displayudf.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,15 +23,17 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_DISPLAYUDF)
+# undef NDEBUG
+#endif
+
 #include <cstdint>
 #include <cstdarg>
 #include <cstdio>
 #include <cassert>
 
 #include "displayudf.h"
-
 #include "display.h"
-#include "display7segment.h"
 
 #include "lightset.h"
 #include "network.h"
@@ -87,6 +89,14 @@ void DisplayUdf::Set(uint32_t nLine, Labels label) {
 }
 
 void DisplayUdf::Show() {
+#if defined (NODE_ARTNET)
+	ShowArtNetNode();
+#elif defined (NODE_E131)
+	ShowE131Bridge();
+#elif defined (NODE_NODE)
+	ShowNode();
+#endif
+
 	for (uint32_t i = 0; i < static_cast<uint32_t>(Labels::UNKNOWN); i++) {
 		if (m_aLabels[i] > LABEL_MAX_ROWS) {
 			m_aLabels[i] = 0xFF;

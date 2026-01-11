@@ -60,13 +60,13 @@ void message_print(const uint8_t *pRdmData) {
 			printf("GET_COMMAND");
 			break;
 		case E120_GET_COMMAND_RESPONSE:
-			printf("GET_COMMAND_RESPONSE");
+			printf("GET_COMMAND_RESPONSE %u", pRdmMessage->slot16.response_type);
 			break;
 		case E120_SET_COMMAND:
 			printf("SET_COMMAND");
 			break;
 		case E120_SET_COMMAND_RESPONSE:
-			printf("SET_COMMAND_RESPONSE");
+			printf("SET_COMMAND_RESPONSE %u", pRdmMessage->slot16.response_type);
 			break;
 		default:
 			printf("CC {%.2x}", pRdmMessage->command_class);
@@ -83,13 +83,13 @@ void message_print(const uint8_t *pRdmData) {
 			}
 		}
 
-		printf("\n");
+		puts("");
 
 	} else if (pRdmData[0] == 0xFE) {
 		for (uint32_t i = 0 ; i < 24; i++) {
 			printf("%.2x ", pRdmData[i]);
 		}
-		printf("\n");
+		puts("");
 	} else {
 		printf("Corrupted? RDM data [0-3]: %.2x:%.2x:%.2x:%.2x\n", pRdmData[0], pRdmData[1], pRdmData[2], pRdmData[3]);
 	}

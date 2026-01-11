@@ -2,7 +2,7 @@
  * @file tftpfileserver.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,10 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_TFTP)
+# undef NDEBUG
+#endif
+
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
@@ -31,12 +35,11 @@
 #include "tftp/tftpfileserver.h"
 #include "remoteconfig.h"
 #include "display.h"
+#include "firmware.h"
 
 #include "debug.h"
 
 using namespace tftpfileserver;
-
-static constexpr auto FILE_NAME_LENGTH = sizeof(FILE_NAME) - 1;
 
 TFTPFileServer::TFTPFileServer(uint8_t *pBuffer, uint32_t nSize): m_pBuffer(pBuffer), m_nSize(nSize) {
 	DEBUG_ENTRY
@@ -56,7 +59,7 @@ void TFTPFileServer::Exit() {
 }
 
 
-bool TFTPFileServer::FileOpen(__attribute__((unused)) const char* pFileName, __attribute__((unused)) tftp::Mode tMode) {
+bool TFTPFileServer::FileOpen([[maybe_unused]] const char *pFileName, [[maybe_unused]] tftp::Mode tMode) {
 	DEBUG_ENTRY
 
 	DEBUG_EXIT
@@ -73,12 +76,12 @@ bool TFTPFileServer::FileCreate(const char* pFileName, tftp::Mode mode) {
 		return false;
 	}
 
-	if (strncmp(FILE_NAME, pFileName, FILE_NAME_LENGTH) != 0) {
+	if (strncmp(firmware::FILE_NAME, pFileName, firmware::FILE_NAME_LENGTH) != 0) {
 		DEBUG_EXIT
 		return false;
 	}
 
-	Display::Get()->TextStatus("TFTP Started", Display7SegmentMessage::INFO_TFTP_STARTED, CONSOLE_GREEN);
+	Display::Get()->TextStatus("TFTP Started", CONSOLE_GREEN);
 
 	m_nFileSize = 0;
 
@@ -91,13 +94,13 @@ bool TFTPFileServer::FileClose() {
 
 	m_bDone = true;
 
-	Display::Get()->TextStatus("TFTP Ended", Display7SegmentMessage::INFO_TFTP_ENDED, CONSOLE_GREEN);
+	Display::Get()->TextStatus("TFTP Ended", CONSOLE_GREEN);
 
 	DEBUG_EXIT
 	return true;
 }
 
-size_t TFTPFileServer::FileRead(__attribute__((unused)) void* pBuffer, __attribute__((unused)) size_t nCount, __attribute__((unused)) unsigned nBlockNumber) {
+size_t TFTPFileServer::FileRead([[maybe_unused]] void* pBuffer, [[maybe_unused]] size_t nCount, [[maybe_unused]] unsigned nBlockNumber) {
 	DEBUG_ENTRY
 
 	DEBUG_EXIT

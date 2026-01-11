@@ -3,9 +3,14 @@ DEFINES+=NODE_RDMNET_LLRP_ONLY
 
 DEFINES+=OUTPUT_DMX_MONITOR
 
+DEFINES+=NODE_SHOWFILE 
+DEFINES+=CONFIG_SHOWFILE_FORMAT_OLA
+DEFINES+=CONFIG_SHOWFILE_PROTOCOL_NODE_E131
+DEFINES+=CONFIG_SHOWFILE_ENABLE_OSC
+
 DEFINES+=DISPLAY_UDF 
 
-#DEFINES+=NDEBUG
+DEFINES+=NDEBUG
 
 SRCDIR=src lib
 
@@ -14,6 +19,6 @@ LIBS=
 include ../firmware-template-linux/Rules.mk
 
 prerequisites:
-	@echo "constexpr uint32_t DEVICE_SOFTWARE_VERSION_ID="$(shell date "+%s")";" > ./include/sofware_version_id.h
+	@echo "constexpr uint32_t DEVICE_SOFTWARE_VERSION_ID="$(shell date "+%s")";" > ./include/software_version_id.h
 
 	

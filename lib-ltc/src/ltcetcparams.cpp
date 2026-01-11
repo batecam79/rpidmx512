@@ -2,7 +2,7 @@
  * @file ltcetcparams.cpp
  *
  */
-/* Copyright (C) 2022-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2022-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,12 +23,8 @@
  * THE SOFTWARE.
  */
 
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
-#endif
-
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <cassert>
 
@@ -57,7 +53,7 @@ void LtcEtcParams::Load() {
 	m_Params.nSetList = 0;
 
 #if !defined(DISABLE_FS)
-	ReadConfigFile configfile(LtcEtcParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(LtcEtcParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(LtcEtcParamsConst::FILE_NAME)) {
 		LtcEtcParamsStore::Update(&m_Params);
@@ -79,7 +75,7 @@ void LtcEtcParams::Load(const char *pBuffer, uint32_t nLength) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(LtcEtcParams::staticCallbackFunction, this);
+	ReadConfigFile config(LtcEtcParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
@@ -97,7 +93,7 @@ void LtcEtcParams::callbackFunction(const char *pLine) {
 	uint32_t nValue32;
 
 	if (Sscan::IpAddress(pLine, LtcEtcParamsConst::DESTINATION_IP, nValue32) == Sscan::OK) {
-		if ((network::is_private_ip(nValue32)) || network::is_multicast_ip(nValue32)) {
+		if ((net::is_private_ip(nValue32)) || net::is_multicast_ip(nValue32)) {
 			m_Params.nDestinationIp = nValue32;
 			m_Params.nSetList |= ltcetcparams::Mask::DESTINATION_IP;
 		} else {
@@ -108,7 +104,7 @@ void LtcEtcParams::callbackFunction(const char *pLine) {
 	}
 
 	if (Sscan::IpAddress(pLine, LtcEtcParamsConst::SOURCE_MULTICAST_IP, nValue32) == Sscan::OK) {
-		if (network::is_multicast_ip(nValue32)) {
+		if (net::is_multicast_ip(nValue32)) {
 			m_Params.nSourceMulticastIp = nValue32;
 			m_Params.nSetList |= ltcetcparams::Mask::SOURCE_MULTICAST_IP;
 		} else {
@@ -147,9 +143,9 @@ void LtcEtcParams::callbackFunction(const char *pLine) {
 
 	if (Sscan::Char(pLine, LtcEtcParamsConst::UDP_TERMINATOR, aTerminator, nLength) == Sscan::OK) {
 		aTerminator[nLength] = '\0';
-		const auto terminator = ltc::etc::get_udp_terminator(aTerminator);
+		const auto terminator = ltcetc::get_udp_terminator(aTerminator);
 
-		if ((terminator == ltc::etc::UdpTerminator::NONE) || (terminator == ltc::etc::UdpTerminator::UNDEFINED)) {
+		if ((terminator == ltcetc::UdpTerminator::NONE) || (terminator == ltcetc::UdpTerminator::UNDEFINED)) {
 			m_Params.nUdpTerminator = 0;
 			m_Params.nSetList &= ~ltcetcparams::Mask::UDP_TERMINATOR;
 		} else {
@@ -181,7 +177,7 @@ void LtcEtcParams::Builder(const struct ltcetcparams::Params *ptLtcEtcParams, ch
 	builder.Add(LtcEtcParamsConst::SOURCE_PORT, m_Params.nSourcePort, isMaskSet(ltcetcparams::Mask::SOURCE_PORT));
 
 	builder.AddComment("UDP Terminator: None/CR/LF/CRLF");
-	builder.Add(LtcEtcParamsConst::UDP_TERMINATOR, ltc::etc::get_udp_terminator(static_cast<ltc::etc::UdpTerminator>(m_Params.nUdpTerminator)), isMaskSet(ltcetcparams::Mask::UDP_TERMINATOR));
+	builder.Add(LtcEtcParamsConst::UDP_TERMINATOR, ltcetc::get_udp_terminator(static_cast<ltcetc::UdpTerminator>(m_Params.nUdpTerminator)), isMaskSet(ltcetcparams::Mask::UDP_TERMINATOR));
 
 	nSize = builder.GetSize();
 }
@@ -206,20 +202,16 @@ void LtcEtcParams::Set() {
 	}
 
 	if (isMaskSet(ltcetcparams::Mask::UDP_TERMINATOR)) {
-		p->SetUdpTerminator(static_cast<ltc::etc::UdpTerminator>(m_Params.nUdpTerminator));
+		p->SetUdpTerminator(static_cast<ltcetc::UdpTerminator>(m_Params.nUdpTerminator));
 	}
 }
 
-void LtcEtcParams::staticCallbackFunction(void *p, const char *s) {
+void LtcEtcParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 
 	(static_cast<LtcEtcParams *>(p))->callbackFunction(s);
 }
-
-#include <cstdio>
-
-#include "network.h"
 
 void LtcEtcParams::Dump() {
 	printf("%s::%s \'%s\':\n", __FILE__, __FUNCTION__, LtcEtcParamsConst::FILE_NAME);
@@ -241,6 +233,6 @@ void LtcEtcParams::Dump() {
 	}
 
 	if (isMaskSet(ltcetcparams::Mask::UDP_TERMINATOR)) {
-		printf(" %s=%s [%u]\n", LtcEtcParamsConst::UDP_TERMINATOR, ltc::etc::get_udp_terminator(static_cast<ltc::etc::UdpTerminator>(m_Params.nUdpTerminator)) , m_Params.nUdpTerminator);
+		printf(" %s=%s [%u]\n", LtcEtcParamsConst::UDP_TERMINATOR, ltcetc::get_udp_terminator(static_cast<ltcetc::UdpTerminator>(m_Params.nUdpTerminator)) , m_Params.nUdpTerminator);
 	}
 }

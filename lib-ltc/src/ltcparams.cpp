@@ -1,7 +1,7 @@
 /**
  * @file ltcparams.cpp
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,9 +22,8 @@
  * THE SOFTWARE.
  */
 
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
+#if defined (DEBUG_LTCPARAMS)
+# undef NDEBUG
 #endif
 
 #include <cstdint>
@@ -37,6 +36,7 @@
 
 #include "configstore.h"
 
+#include "hardware.h"
 #include "network.h"
 
 #include "readconfigfile.h"
@@ -71,6 +71,8 @@ LtcParams::LtcParams() {
 	m_Params.nSkipSeconds = 5;
 	m_Params.nTimeCodeIp = Network::Get()->GetBroadcastIp();
 
+	ltc::g_Type = get_type(m_Params.nFps);
+
 	DEBUG_EXIT
 }
 
@@ -80,13 +82,13 @@ void LtcParams::Load() {
 	m_Params.nSetList = 0;
 
 #if !defined(DISABLE_FS)
-	ReadConfigFile configfile(LtcParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(LtcParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(LtcParamsConst::FILE_NAME)) {
-		LtcParamsStore::Update(&m_Params);
+		ltcparams::store::update(&m_Params);
 	} else
 #endif
-		LtcParamsStore::Copy(&m_Params);
+		ltcparams::store::copy(&m_Params);
 
 #ifndef NDEBUG
 	Dump();
@@ -102,11 +104,11 @@ void LtcParams::Load(const char* pBuffer, uint32_t nLength) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(LtcParams::staticCallbackFunction, this);
+	ReadConfigFile config(LtcParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
-	LtcParamsStore::Update(&m_Params);
+	ltcparams::store::update(&m_Params);
 
 #ifndef NDEBUG
 	Dump();
@@ -114,15 +116,15 @@ void LtcParams::Load(const char* pBuffer, uint32_t nLength) {
 	DEBUG_EXIT
 }
 
-void LtcParams::HandleDisabledOutput(const char *pLine, const char *pKeyword, uint8_t nMaskDisabledOutputs) {
+void LtcParams::HandleDisabledOutput(const char *pLine, const char *pKeyword, const ltc::Destination::Output nOutput) {
 	uint8_t nValue8;
 
 	if (Sscan::Uint8(pLine, pKeyword, nValue8) == Sscan::OK) {
 		if (nValue8 != 0) {
-			m_Params.nDisabledOutputs |= nMaskDisabledOutputs;
+			m_Params.nDisabledOutputs |= static_cast<uint8_t>(nOutput);
 			m_Params.nSetList |= ltcparams::Mask::DISABLED_OUTPUTS;
 		} else {
-			m_Params.nDisabledOutputs &= static_cast<uint8_t>(~nMaskDisabledOutputs);
+			m_Params.nDisabledOutputs &= ~static_cast<uint8_t>(nOutput);
 		}
 	}
 }
@@ -147,7 +149,7 @@ void LtcParams::SetValue(const bool bEvaluate, const uint8_t nValue, uint8_t& nP
 	return;
 }
 
-void LtcParams::callbackFunction(const char* pLine) {
+void LtcParams::callbackFunction(const char *pLine) {
 	assert(pLine != nullptr);
 
 	char source[16];
@@ -177,8 +179,21 @@ void LtcParams::callbackFunction(const char* pLine) {
 		return;
 	}
 
+	if (Sscan::Uint8(pLine, LtcParamsConst::SHOW_SYSTIME, nValue8) == Sscan::OK) {
+		if (nValue8 != 0) {
+			m_Params.nSetList |= ltcparams::Mask::SHOW_SYSTIME;
+		} else {
+			m_Params.nSetList &= ~ltcparams::Mask::SHOW_SYSTIME;
+		}
+		return;
+	}
+
 	if (Sscan::Uint8(pLine, LtcParamsConst::AUTO_START, nValue8) == Sscan::OK) {
-		SetBool(nValue8, m_Params.nAutoStart, ltcparams::Mask::AUTO_START);
+		if (nValue8 != 0) {
+			m_Params.nSetList |= ltcparams::Mask::AUTO_START;
+		} else {
+			m_Params.nSetList &= ~ltcparams::Mask::AUTO_START;
+		}
 		return;
 	}
 
@@ -188,25 +203,46 @@ void LtcParams::callbackFunction(const char* pLine) {
 		} else {
 			m_Params.nSetList &= ~ltcparams::Mask::GPS_START;
 		}
+		return;
 	}
 
-	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_DISPLAY, LtcParamsMaskDisabledOutputs::DISPLAY);
-	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_MAX7219, LtcParamsMaskDisabledOutputs::MAX7219);
-	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_LTC, LtcParamsMaskDisabledOutputs::LTC);
-	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_MIDI, LtcParamsMaskDisabledOutputs::MIDI);
-	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_ARTNET, LtcParamsMaskDisabledOutputs::ARTNET);
-	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_RTPMIDI, LtcParamsMaskDisabledOutputs::RTPMIDI);
-	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_ETC, LtcParamsMaskDisabledOutputs::ETC);
-
-	if (Sscan::Uint8(pLine, LtcParamsConst::SHOW_SYSTIME, nValue8) == Sscan::OK) {
-		SetBool(nValue8, m_Params.nShowSysTime, ltcparams::Mask::SHOW_SYSTIME);
+	if (Sscan::UtcOffset(pLine, LtcParamsConst::UTC_OFFSET, m_Params.nUtcOffsetHours, m_Params.nUtcOffsetMinutes) == Sscan::OK) {
+		int32_t nUtcOffset;
+		if (hal::utc_validate(m_Params.nUtcOffsetHours, m_Params.nUtcOffsetMinutes, nUtcOffset)) {
+			DEBUG_PUTS("UtcOffset OK.");
+		} else {
+			m_Params.nUtcOffsetHours = 0;
+			m_Params.nUtcOffsetMinutes = 0;
+			DEBUG_PUTS("UtcOffset failed.");
+		}
 		return;
 	}
 
 	if (Sscan::Uint8(pLine, LtcParamsConst::DISABLE_TIMESYNC, nValue8) == Sscan::OK) {
-		SetBool(nValue8, m_Params.nDisableTimeSync, ltcparams::Mask::DISABLE_TIMESYNC);
+		if (nValue8 != 0) {
+			m_Params.nSetList |= ltcparams::Mask::DISABLE_TIMESYNC;
+		} else {
+			m_Params.nSetList &= ~ltcparams::Mask::DISABLE_TIMESYNC;
+		}
 		return;
 	}
+
+	if (Sscan::Uint8(pLine, LtcParamsConst::NTP_ENABLE, nValue8) == Sscan::OK) {
+		if (nValue8 != 0) {
+			m_Params.nSetList |= ltcparams::Mask::NTP_ENABLE;
+		} else {
+			m_Params.nSetList &= ~ltcparams::Mask::NTP_ENABLE;
+		}
+		return;
+	}
+
+	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_DISPLAY_OLED, Destination::Output::DISPLAY_OLED);
+	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_MAX7219, Destination::Output::MAX7219);
+	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_LTC, Destination::Output::LTC);
+	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_MIDI, Destination::Output::MIDI);
+	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_ARTNET, Destination::Output::ARTNET);
+	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_RTPMIDI, Destination::Output::RTPMIDI);
+	HandleDisabledOutput(pLine, LtcParamsConst::DISABLE_ETC, Destination::Output::ETC);
 
 	if (Sscan::Uint8(pLine, LtcParamsConst::YEAR, nValue8) == Sscan::OK) {
 		SetValue((nValue8 >= 19), nValue8, m_Params.nYear, ltcparams::Mask::YEAR);
@@ -223,13 +259,9 @@ void LtcParams::callbackFunction(const char* pLine) {
 		return;
 	}
 
-	if (Sscan::Uint8(pLine, LtcParamsConst::NTP_ENABLE, nValue8) == Sscan::OK) {
-		SetBool(nValue8, m_Params.nEnableNtp, ltcparams::Mask::ENABLE_NTP);
-		return;
-	}
-
 	if (Sscan::Uint8(pLine, LtcParamsConst::FPS, nValue8) == Sscan::OK) {
 		SetValue((nValue8 >= 24) && (nValue8 <= 30), nValue8, m_Params.nFps, ltcparams::Mask::FPS);
+		ltc::g_Type = ltc::get_type(m_Params.nFps);
 		return;
 	}
 
@@ -294,8 +326,30 @@ void LtcParams::callbackFunction(const char* pLine) {
 		return;
 	}
 
+	if (Sscan::Uint8(pLine, LtcParamsConst::IGNORE_START, nValue8) == Sscan::OK) {
+		if (nValue8 != 0) {
+			m_Params.nSetList |= ltcparams::Mask::IGNORE_START;
+		} else {
+			m_Params.nSetList &= ~ltcparams::Mask::IGNORE_START;
+		}
+		return;
+	}
+
+	if (Sscan::Uint8(pLine, LtcParamsConst::IGNORE_STOP, nValue8) == Sscan::OK) {
+		if (nValue8 != 0) {
+			m_Params.nSetList |= ltcparams::Mask::IGNORE_STOP;
+		} else {
+			m_Params.nSetList &= ~ltcparams::Mask::IGNORE_STOP;
+		}
+		return;
+	}
+
 	if (Sscan::Uint8(pLine, LtcParamsConst::OSC_ENABLE, nValue8) == Sscan::OK) {
-		SetBool(nValue8, m_Params.nEnableOsc, ltcparams::Mask::ENABLE_OSC);
+		if (nValue8 != 0) {
+			m_Params.nSetList |= ltcparams::Mask::OSC_ENABLE;
+		} else {
+			m_Params.nSetList &= ~ltcparams::Mask::OSC_ENABLE;
+		}
 		return;
 	}
 
@@ -354,88 +408,108 @@ void LtcParams::callbackFunction(const char* pLine) {
 	}
 }
 
-void LtcParams::Set(struct ltc::TimeCode *ptStartTimeCode, struct ltc::TimeCode *ptStopTimeCode) {
-	g_ltc_ptLtcDisabledOutputs.bOled = isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::DISPLAY);
-	g_ltc_ptLtcDisabledOutputs.bMax7219 = isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::MAX7219);
-	g_ltc_ptLtcDisabledOutputs.bMidi = isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::MIDI);
-	g_ltc_ptLtcDisabledOutputs.bArtNet = isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::ARTNET);
-	g_ltc_ptLtcDisabledOutputs.bLtc = isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::LTC);
-	g_ltc_ptLtcDisabledOutputs.bEtc = isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::ETC);
-	g_ltc_ptLtcDisabledOutputs.bNtp = (m_Params.nEnableNtp == 0);
-	g_ltc_ptLtcDisabledOutputs.bRtpMidi = isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::RTPMIDI);
+void LtcParams::Set(struct ltc::TimeCode *pStartTimeCode, struct ltc::TimeCode *pStopTimeCode) {
+#if 0
+	ltc::g_DisabledOutputs.bOled = isDisabledOutputMaskSet(Destination::Output::DISPLAY_OLED);
+	ltc::g_DisabledOutputs.bMax7219 = isDisabledOutputMaskSet(Destination::Output::MAX7219);
+	ltc::g_DisabledOutputs.bMidi = isDisabledOutputMaskSet(Destination::Output::MIDI);
+	ltc::g_DisabledOutputs.bArtNet = isDisabledOutputMaskSet(Destination::Output::ARTNET);
+	ltc::g_DisabledOutputs.bLtc = isDisabledOutputMaskSet(Destination::Output::LTC);
+	ltc::g_DisabledOutputs.bEtc = isDisabledOutputMaskSet(Destination::Output::ETC);
+	ltc::g_DisabledOutputs.bNtp = !isMaskSet(ltcparams::Mask::NTP_ENABLE);
+	ltc::g_DisabledOutputs.bRtpMidi = isDisabledOutputMaskSet(Destination::Output::RTPMIDI);
 #if !defined (CONFIG_LTC_DISABLE_WS28XX)
-	g_ltc_ptLtcDisabledOutputs.bWS28xx = (m_Params.nRgbLedType != ltcparams::RgbLedType::WS28XX);
+	ltc::g_DisabledOutputs.bWS28xx = (m_Params.nRgbLedType != ltcparams::RgbLedType::WS28XX);
 #else
-	g_ltc_ptLtcDisabledOutputs.bWS28xx = false;
+	ltc::g_DisabledOutputs.bWS28xx = true;
 #endif
 #if !defined (CONFIG_LTC_DISABLE_RGB_PANEL)
-	g_ltc_ptLtcDisabledOutputs.bRgbPanel = (m_Params.nRgbLedType != ltcparams::RgbLedType::RGBPANEL);
+	ltc::g_DisabledOutputs.bRgbPanel = (m_Params.nRgbLedType != ltcparams::RgbLedType::RGBPANEL);
 #else
-	g_ltc_ptLtcDisabledOutputs.bRgbPanel = false;
+	ltc::g_DisabledOutputs.bRgbPanel = true;
+#endif
+#endif
+	/*
+	 *
+	 */
+
+	ltc::g_nDisabledOutputs = m_Params.nDisabledOutputs;
+	ltc::Destination::SetDisabled(Destination::Output::NTP_SERVER, !isMaskSet(ltcparams::Mask::NTP_ENABLE));
+#if !defined (CONFIG_LTC_DISABLE_WS28XX)
+	ltc::Destination::SetDisabled(Destination::Output::WS28XX, (m_Params.nRgbLedType != ltcparams::RgbLedType::WS28XX));
+#else
+	ltc::Destination::SetDisabled(Destination::Output::WS28XX);
+#endif
+#if !defined (CONFIG_LTC_DISABLE_RGB_PANEL)
+	ltc::Destination::SetDisabled(Destination::Output::RGBPANEL, (m_Params.nRgbLedType != ltcparams::RgbLedType::RGBPANEL));
+#else
+	ltc::Destination::SetDisabled(Destination::Output::RGBPANEL);
 #endif
 
-	assert (g_ltc_ptLtcDisabledOutputs.bWS28xx || g_ltc_ptLtcDisabledOutputs.bRgbPanel);
+	/*
+	 *
+	 */
 
-	assert(ptStartTimeCode != nullptr);
+	assert(pStartTimeCode != nullptr);
 
 	if ((isMaskSet(ltcparams::Mask::START_FRAME)) || (isMaskSet(ltcparams::Mask::START_SECOND)) || (isMaskSet(ltcparams::Mask::START_MINUTE)) || (isMaskSet(ltcparams::Mask::START_HOUR)) ) {
-		memset(ptStartTimeCode, 0, sizeof(struct ltc::TimeCode));
+		memset(pStartTimeCode, 0, sizeof(struct ltc::TimeCode));
 
 		if (isMaskSet(ltcparams::Mask::START_FRAME)) {
-			ptStartTimeCode->nFrames = m_Params.nStartFrame;
+			pStartTimeCode->nFrames = m_Params.nStartFrame;
 		}
 
 		if (isMaskSet(ltcparams::Mask::START_SECOND)) {
-			ptStartTimeCode->nSeconds = m_Params.nStartSecond;
+			pStartTimeCode->nSeconds = m_Params.nStartSecond;
 		}
 
 		if (isMaskSet(ltcparams::Mask::START_MINUTE)) {
-			ptStartTimeCode->nMinutes = m_Params.nStartMinute;
+			pStartTimeCode->nMinutes = m_Params.nStartMinute;
 		}
 
 		if (isMaskSet(ltcparams::Mask::START_HOUR)) {
-			ptStartTimeCode->nHours = m_Params.nStartHour;
+			pStartTimeCode->nHours = m_Params.nStartHour;
 		}
 	} else {
-		ptStartTimeCode->nFrames = m_Params.nStartFrame;
-		ptStartTimeCode->nSeconds = m_Params.nStartSecond;
-		ptStartTimeCode->nMinutes = m_Params.nStartMinute;
-		ptStartTimeCode->nHours = m_Params.nStartHour;
+		pStartTimeCode->nFrames = m_Params.nStartFrame;
+		pStartTimeCode->nSeconds = m_Params.nStartSecond;
+		pStartTimeCode->nMinutes = m_Params.nStartMinute;
+		pStartTimeCode->nHours = m_Params.nStartHour;
 	}
 
-	ptStartTimeCode->nType = static_cast<uint8_t>(ltc::get_type(m_Params.nFps));
+	pStartTimeCode->nType = static_cast<uint8_t>(ltc::g_Type);
 
-	assert(ptStopTimeCode != nullptr);
+	assert(pStopTimeCode != nullptr);
 
 	if ((isMaskSet(ltcparams::Mask::STOP_FRAME)) || (isMaskSet(ltcparams::Mask::STOP_SECOND)) || (isMaskSet(ltcparams::Mask::STOP_MINUTE)) || (isMaskSet(ltcparams::Mask::STOP_HOUR)) ) {
-		memset(ptStopTimeCode, 0, sizeof(struct ltc::TimeCode));
+		memset(pStopTimeCode, 0, sizeof(struct ltc::TimeCode));
 
 		if (isMaskSet(ltcparams::Mask::STOP_FRAME)) {
-			ptStopTimeCode->nFrames = m_Params.nStopFrame;
+			pStopTimeCode->nFrames = m_Params.nStopFrame;
 		}
 
 		if (isMaskSet(ltcparams::Mask::STOP_SECOND)) {
-			ptStopTimeCode->nSeconds = m_Params.nStopSecond;
+			pStopTimeCode->nSeconds = m_Params.nStopSecond;
 		}
 
 		if (isMaskSet(ltcparams::Mask::STOP_MINUTE)) {
-			ptStopTimeCode->nMinutes = m_Params.nStopMinute;
+			pStopTimeCode->nMinutes = m_Params.nStopMinute;
 		}
 
 		if (isMaskSet(ltcparams::Mask::STOP_HOUR)) {
-			ptStopTimeCode->nHours = m_Params.nStopHour;
+			pStopTimeCode->nHours = m_Params.nStopHour;
 		}
 	} else {
-		ptStopTimeCode->nFrames = m_Params.nStopFrame;
-		ptStopTimeCode->nSeconds = m_Params.nStopSecond;
-		ptStopTimeCode->nMinutes = m_Params.nStopMinute;
-		ptStopTimeCode->nHours = m_Params.nStopHour;
+		pStopTimeCode->nFrames = m_Params.nStopFrame;
+		pStopTimeCode->nSeconds = m_Params.nStopSecond;
+		pStopTimeCode->nMinutes = m_Params.nStopMinute;
+		pStopTimeCode->nHours = m_Params.nStopHour;
 	}
 
-	ptStopTimeCode->nType = static_cast<uint8_t>(ltc::get_type(m_Params.nFps));
+	pStopTimeCode->nType = static_cast<uint8_t>(ltc::g_Type);
 }
 
-void LtcParams::staticCallbackFunction(void *p, const char *s) {
+void LtcParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 
@@ -450,7 +524,7 @@ void LtcParams::Builder(const struct ltcparams::Params *ptLtcParams, char *pBuff
 	if (ptLtcParams != nullptr) {
 		memcpy(&m_Params, ptLtcParams, sizeof(struct ltcparams::Params));
 	} else {
-		LtcParamsStore::Copy(&m_Params);
+		ltcparams::store::copy(&m_Params);
 	}
 
 	PropertiesBuilder builder(LtcParamsConst::FILE_NAME, pBuffer, nLength);
@@ -458,13 +532,13 @@ void LtcParams::Builder(const struct ltcparams::Params *ptLtcParams, char *pBuff
 	builder.Add(LtcParamsConst::SOURCE, GetSourceType(static_cast<Source>(m_Params.nSource)), isMaskSet(ltcparams::Mask::SOURCE));
 
 	builder.AddComment("Disable outputs");
-	builder.Add(LtcParamsConst::DISABLE_DISPLAY, isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::DISPLAY));
-	builder.Add(LtcParamsConst::DISABLE_MAX7219, isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::MAX7219));
-	builder.Add(LtcParamsConst::DISABLE_LTC, isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::LTC));
-	builder.Add(LtcParamsConst::DISABLE_MIDI, isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::MIDI));
-	builder.Add(LtcParamsConst::DISABLE_ARTNET, isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::ARTNET));
-	builder.Add(LtcParamsConst::DISABLE_RTPMIDI, isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::RTPMIDI));
-	builder.Add(LtcParamsConst::DISABLE_ETC, isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::ETC));
+	builder.Add(LtcParamsConst::DISABLE_DISPLAY_OLED, isDisabledOutputMaskSet(Destination::Output::DISPLAY_OLED));
+	builder.Add(LtcParamsConst::DISABLE_MAX7219, isDisabledOutputMaskSet(Destination::Output::MAX7219));
+	builder.Add(LtcParamsConst::DISABLE_LTC, isDisabledOutputMaskSet(Destination::Output::LTC));
+	builder.Add(LtcParamsConst::DISABLE_MIDI, isDisabledOutputMaskSet(Destination::Output::MIDI));
+	builder.Add(LtcParamsConst::DISABLE_ARTNET, isDisabledOutputMaskSet(Destination::Output::ARTNET));
+	builder.Add(LtcParamsConst::DISABLE_RTPMIDI, isDisabledOutputMaskSet(Destination::Output::RTPMIDI));
+	builder.Add(LtcParamsConst::DISABLE_ETC, isDisabledOutputMaskSet(Destination::Output::ETC));
 
 	builder.AddComment("System clock / RTC");
 	builder.Add(LtcParamsConst::SHOW_SYSTIME, isMaskSet(ltcparams::Mask::SHOW_SYSTIME));
@@ -473,6 +547,7 @@ void LtcParams::Builder(const struct ltcparams::Params *ptLtcParams, char *pBuff
 	builder.AddComment("source=systime");
 	builder.Add(LtcParamsConst::AUTO_START, isMaskSet(ltcparams::Mask::AUTO_START));
 	builder.Add(LtcParamsConst::GPS_START, isMaskSet(ltcparams::Mask::GPS_START));
+	builder.AddUtcOffset(LtcParamsConst::UTC_OFFSET, m_Params.nUtcOffsetHours, m_Params.nUtcOffsetMinutes);
 
 	builder.AddComment("source=internal");
 	builder.Add(LtcParamsConst::FPS, m_Params.nFps, isMaskSet(ltcparams::Mask::FPS));
@@ -485,6 +560,8 @@ void LtcParams::Builder(const struct ltcparams::Params *ptLtcParams, char *pBuff
 	builder.Add(LtcParamsConst::STOP_SECOND, m_Params.nStopSecond, isMaskSet(ltcparams::Mask::STOP_SECOND));
 	builder.Add(LtcParamsConst::STOP_FRAME, m_Params.nStopFrame, isMaskSet(ltcparams::Mask::STOP_FRAME));
 	builder.Add(LtcParamsConst::SKIP_FREE, m_Params.nSkipFree, isMaskSet(ltcparams::Mask::SKIP_FREE));
+	builder.Add(LtcParamsConst::IGNORE_START, isMaskSet(ltcparams::Mask::IGNORE_START));
+	builder.Add(LtcParamsConst::IGNORE_STOP, isMaskSet(ltcparams::Mask::IGNORE_STOP));
 	builder.AddComment("MCP buttons");
 	builder.Add(LtcParamsConst::ALT_FUNCTION, isMaskSet(ltcparams::Mask::ALT_FUNCTION));
 	builder.Add(LtcParamsConst::SKIP_SECONDS, m_Params.nSkipSeconds, isMaskSet(ltcparams::Mask::SKIP_SECONDS));
@@ -496,13 +573,13 @@ void LtcParams::Builder(const struct ltcparams::Params *ptLtcParams, char *pBuff
 	builder.Add(LtcParamsConst::VOLUME, m_Params.nVolume, isMaskSet(ltcparams::Mask::VOLUME));
 
 	builder.AddComment("NTP Server");
-	builder.Add(LtcParamsConst::NTP_ENABLE, isMaskSet(ltcparams::Mask::ENABLE_NTP));
+	builder.Add(LtcParamsConst::NTP_ENABLE, isMaskSet(ltcparams::Mask::NTP_ENABLE));
 	builder.Add(LtcParamsConst::YEAR, m_Params.nYear, isMaskSet(ltcparams::Mask::YEAR));
 	builder.Add(LtcParamsConst::MONTH, m_Params.nMonth, isMaskSet(ltcparams::Mask::MONTH));
 	builder.Add(LtcParamsConst::DAY, m_Params.nDay, isMaskSet(ltcparams::Mask::DAY));
 
 	builder.AddComment("OSC Server");
-	builder.Add(LtcParamsConst::OSC_ENABLE, isMaskSet(ltcparams::Mask::ENABLE_OSC));
+	builder.Add(LtcParamsConst::OSC_ENABLE, isMaskSet(ltcparams::Mask::OSC_ENABLE));
 	builder.Add(LtcParamsConst::OSC_PORT, m_Params.nOscPort, isMaskSet(ltcparams::Mask::OSC_PORT));
 
 	builder.AddComment("WS28xx display");
@@ -530,46 +607,37 @@ void LtcParams::Dump() {
 		printf(" %s=%d\n", LtcParamsConst::VOLUME, m_Params.nVolume);
 	}
 
-	if (isMaskSet(ltcparams::Mask::AUTO_START)) {
-		printf(" %s=%d\n", LtcParamsConst::AUTO_START, m_Params.nAutoStart);
-	}
-
-	if (isMaskSet(ltcparams::Mask::GPS_START)) {
-		printf(" %s=1\n", LtcParamsConst::AUTO_START);
-	}
+	printf(" %s=%d\n", LtcParamsConst::AUTO_START, isMaskSet(ltcparams::Mask::AUTO_START));
+	printf(" %s=%d\n", LtcParamsConst::GPS_START, isMaskSet(ltcparams::Mask::GPS_START));
 
 	if (isMaskSet(ltcparams::Mask::DISABLED_OUTPUTS)) {
 		printf(" Disabled outputs %.2x:\n", m_Params.nDisabledOutputs);
 
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::DISPLAY)) {
-			printf("  Display\n");
+		if (isDisabledOutputMaskSet(Destination::Output::DISPLAY_OLED)) {
+			printf("  Display OLED\n");
 		}
 
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::MAX7219)) {
+		if (isDisabledOutputMaskSet(Destination::Output::MAX7219)) {
 			printf("  Max7219\n");
 		}
 
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::MIDI)) {
+		if (isDisabledOutputMaskSet(Destination::Output::MIDI)) {
 			printf("  MIDI\n");
 		}
 
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::RTPMIDI)) {
+		if (isDisabledOutputMaskSet(Destination::Output::RTPMIDI)) {
 			printf("  RtpMIDI\n");
 		}
 
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::ARTNET)) {
+		if (isDisabledOutputMaskSet(Destination::Output::ARTNET)) {
 			printf("  Art-Net\n");
 		}
 
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::TCNET)) {
-			printf("  TCNet\n");
-		}
-
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::ETC)) {
+		if (isDisabledOutputMaskSet(Destination::Output::ETC)) {
 			printf("  ETC\n");
 		}
 
-		if (isDisabledOutputMaskSet(LtcParamsMaskDisabledOutputs::LTC)) {
+		if (isDisabledOutputMaskSet(Destination::Output::LTC)) {
 			printf("  LTC\n");
 		}
 	}
@@ -586,9 +654,7 @@ void LtcParams::Dump() {
 		printf(" %s=%d\n", LtcParamsConst::DAY, m_Params.nDay);
 	}
 
-	if (isMaskSet(ltcparams::Mask::ENABLE_NTP)) {
-		printf(" NTP is enabled\n");
-	}
+	printf(" %s=%d\n", LtcParamsConst::NTP_ENABLE, isMaskSet(ltcparams::Mask::NTP_ENABLE));
 
 	if (isMaskSet(ltcparams::Mask::FPS)) {
 		printf(" %s=%d\n", LtcParamsConst::FPS, m_Params.nFps);
@@ -634,13 +700,16 @@ void LtcParams::Dump() {
 		printf(" %s=%d\n", LtcParamsConst::SKIP_SECONDS, m_Params.nSkipSeconds);
 	}
 
+	printf(" %s=%d\n", LtcParamsConst::IGNORE_START, isMaskSet(ltcparams::Mask::IGNORE_START));
+	printf(" %s=%d\n", LtcParamsConst::IGNORE_STOP, isMaskSet(ltcparams::Mask::IGNORE_STOP));
+
 #if 0
 	if (isMaskSet(ltcparams::Mask::SET_DATE)) {
 		printf(" %s=%d\n", LtcParamsConst::SET_DATE, m_Params.nSetDate);
 	}
 #endif
 
-	if (isMaskSet(ltcparams::Mask::ENABLE_OSC)) {
+	if (isMaskSet(ltcparams::Mask::OSC_ENABLE)) {
 		printf(" OSC is enabled\n");
 
 		if (isMaskSet(ltcparams::Mask::OSC_PORT)) {

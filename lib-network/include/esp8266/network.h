@@ -2,7 +2,7 @@
  * @file network.h
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,6 +32,8 @@
 
 #include <cstdint>
 #include <net/if.h>
+
+#include "net/ip4_address.h"
 
 struct ip_addr {
     uint32_t addr;
@@ -72,6 +74,10 @@ typedef enum wifiphy_phy_mode {
 
 #define HOST_NAME_MAX			255
 
+namespace net {
+typedef void (*UdpCallbackFunctionPtr)(const uint8_t *, uint32_t, uint32_t, uint16_t);
+}  // namespace net
+
 class Network {
 public:
 	Network();
@@ -79,19 +85,18 @@ public:
 
 	void Init();
 
-	int32_t Begin(uint16_t nPort) ;
+	int32_t Begin(uint16_t nPort, net::UdpCallbackFunctionPtr callback = nullptr) ;
 	int32_t End(uint16_t nPort) ;
 
 	void MacAddressCopyTo(uint8_t *pMacAddress);
 
 	void JoinGroup(int32_t nHandle, uint32_t nIp);
-	void LeaveGroup(__attribute__((unused)) int32_t nHandle, __attribute__((unused)) uint32_t nIp)  {
+	void LeaveGroup([[maybe_unused]] int32_t nHandle, [[maybe_unused]] uint32_t nIp)  {
 		// Not supported
 	}
 
-	uint16_t RecvFrom(int32_t nHandle, void *pBuffer, uint16_t nLength, uint32_t *pFromIp, uint16_t *pFromPort);
-	uint16_t RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort);
-	void SendTo(int32_t nHandle, const void *pBuffer, uint16_t nLength, uint32_t nToIp, uint16_t nRemotePort) ;
+	uint32_t RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort);
+	void SendTo(int32_t nHandle, const void *pBuffer, uint32_t nLength, uint32_t nToIp, uint16_t nRemotePort) ;
 
 	void Print() {
 	}
@@ -112,14 +117,14 @@ public:
 		return m_nLocalIp;
 	}
 
-	void SetIp(__attribute__((unused)) uint32_t nIp) {
+	void SetIp([[maybe_unused]] uint32_t nIp) {
 	}
 
 	uint32_t GetIp() const {
 		return m_nLocalIp;
 	}
 
-	void SetNetmask(__attribute__((unused)) uint32_t nNetmask) {
+	void SetNetmask([[maybe_unused]] uint32_t nNetmask) {
 	}
 
 	uint32_t GetNetmask() const {
@@ -130,7 +135,7 @@ public:
 		return m_aHostName;
 	}
 
-	void SetGatewayIp(__attribute__((unused)) uint32_t nGatewayIp) {
+	void SetGatewayIp([[maybe_unused]] uint32_t nGatewayIp) {
 	}
 
 	uint32_t GetGatewayIp() const {
@@ -166,6 +171,8 @@ public:
 		return false;
 	}
 
+	void Run();
+
 	static Network *Get() {
 		return s_pThis;
 	}
@@ -180,6 +187,8 @@ private:
 	_wifi_station_status StationGetConnectStatus();
 	const char *StationStatus(_wifi_station_status status);
 
+	uint32_t RecvFrom(int32_t nHandle, void *pBuffer, uint32_t nLength, uint32_t *from_ip, uint16_t* from_port);
+
 private:
 	bool m_IsInitDone { false };
 	bool m_IsDhcpCapable { true };
@@ -187,15 +196,15 @@ private:
 	uint32_t m_nLocalIp { 0 };
 	uint32_t m_nGatewayIp { 0 };
 	uint32_t m_nNetmask { 0 };
-	char m_aHostName[network::HOSTNAME_SIZE];
-	char m_aDomainName[network::DOMAINNAME_SIZE];
-	uint8_t m_aNetMacaddr[network::MAC_SIZE];
+	char m_aHostName[net::HOSTNAME_SIZE];
+	char m_aDomainName[net::DOMAINNAME_SIZE];
+	uint8_t m_aNetMacaddr[net::MAC_SIZE];
 	char m_aIfName[IFNAMSIZ];
 	_wifi_mode m_Mode { WIFI_OFF };
 	bool m_isApOpen { true };
 	char *m_pSSID { nullptr };
 
-	static Network *s_pThis;
+	static inline Network *s_pThis;
 };
 
 #endif /* ESP8266_NETWORK_H_ */

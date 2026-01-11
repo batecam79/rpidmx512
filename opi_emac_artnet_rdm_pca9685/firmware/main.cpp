@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2023-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,15 +29,9 @@
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
-
-#include "mdns.h"
-
-#include "ntpclient.h"
 
 #include "displayudf.h"
 #include "displayudfparams.h"
-#include "display7segment.h"
 
 #include "artnetnode.h"
 #include "artnetparams.h"
@@ -49,7 +43,7 @@
 #include "rdmpersonality.h"
 #include "rdmdeviceparams.h"
 #include "rdmsensorsparams.h"
-#if defined (ENABLE_RDM_SUBDEVICES)
+#if defined (CONFIG_RDM_ENABLE_SUBDEVICES)
 # include "rdmsubdevicesparams.h"
 #endif
 
@@ -58,7 +52,10 @@
 #include "pca9685dmxparams.h"
 #include "pca9685dmx.h"
 
-#include "lightsetchain.h"
+#if defined (NODE_SHOWFILE)
+# include "showfile.h"
+# include "showfileparams.h"
+#endif
 
 #include "flashcodeinstall.h"
 #include "configstore.h"
@@ -70,33 +67,21 @@
 
 #include "displayhandler.h"
 
-namespace artnetnode {
-namespace configstore {
-uint32_t DMXPORT_OFFSET = 0;
-}  // namespace configstore
-}  // namespace artnetnode
-
-void Hardware::RebootHandler() {
+namespace hal {
+void reboot_handler() {
 	ArtNetNode::Get()->Stop();
 }
+}  // namespace hal
 
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print("Art-Net 4 PCA9685");
-	nw.Print();
-
-	NtpClient ntpClient;
-	ntpClient.Start();
-	ntpClient.Print();
 
 	PCA9685Dmx pca9685Dmx;
 
@@ -104,10 +89,8 @@ void main() {
 	pca9685DmxParams.Load();
 	pca9685DmxParams.Set(&pca9685Dmx);
 
-	display.TextStatus(ArtNetMsgConst::PARAMS, Display7SegmentMessage::INFO_NODE_PARMAMS, CONSOLE_YELLOW);
-
 	ArtNetNode node;
-	
+
 	ArtNetParams artnetParams;
 	artnetParams.Load();
 	artnetParams.Set();
@@ -130,7 +113,7 @@ void main() {
 	rdmSensorsParams.Load();
 	rdmSensorsParams.Set();
 
-#if defined (ENABLE_RDM_SUBDEVICES)
+#if defined (CONFIG_RDM_ENABLE_SUBDEVICES)
 	RDMSubDevicesParams rdmSubDevicesParams;
 	rdmSubDevicesParams.Load();
 	rdmSubDevicesParams.Set();
@@ -149,6 +132,20 @@ void main() {
 
 	pca9685Dmx.Print();
 
+#if defined (NODE_SHOWFILE)
+	ShowFile showFile;
+
+	ShowFileParams showFileParams;
+	showFileParams.Load();
+	showFileParams.Set();
+
+	if (showFile.IsAutoStart()) {
+		showFile.Play();
+	}
+
+	showFile.Print();
+#endif
+
 	display.SetTitle("Art-Net 4 PCA9685");
 	display.Set(2, displayudf::Labels::IP);
 	display.Set(3, displayudf::Labels::VERSION);
@@ -159,7 +156,7 @@ void main() {
 	displayUdfParams.Load();
 	displayUdfParams.Set(&display);
 
-	display.Show(&node);
+	display.Show();
 
 	RemoteConfig remoteConfig(remoteconfig::Node::ARTNET, remoteconfig::Output::PWM, node.GetActiveOutputPorts());
 
@@ -167,16 +164,11 @@ void main() {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
-	display.TextStatus(ArtNetMsgConst::START, Display7SegmentMessage::INFO_NODE_START, CONSOLE_YELLOW);
+	display.TextStatus(ArtNetMsgConst::START, CONSOLE_YELLOW);
 
 	node.Start();
 
-	display.TextStatus(ArtNetMsgConst::STARTED, Display7SegmentMessage::INFO_NODE_STARTED, CONSOLE_GREEN);
+	display.TextStatus(ArtNetMsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
@@ -184,10 +176,9 @@ void main() {
 		hw.WatchdogFeed();
 		nw.Run();
 		node.Run();
-		ntpClient.Run();
-		remoteConfig.Run();
-		configStore.Flash();
-		mDns.Run();
+#if defined (NODE_SHOWFILE)
+		showFile.Run();
+#endif
 		display.Run();
 		hw.Run();
 	}

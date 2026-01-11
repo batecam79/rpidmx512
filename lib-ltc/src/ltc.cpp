@@ -2,7 +2,7 @@
  * @file ltc.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,14 +30,14 @@
 
 #include "ltc.h"
 
-struct ltc::DisabledOutputs g_ltc_ptLtcDisabledOutputs;
-
 namespace ltc {
+uint32_t g_nDisabledOutputs;
+ltc::Type g_Type;
+
 static constexpr char aTypes[5][ltc::timecode::TYPE_MAX_LENGTH + 1] =
 	{ "Film 24fps ", "EBU 25fps  ", "DF 29.97fps", "SMPTE 30fps", "----- -----" };
 
-
-const char* get_type(ltc::Type type) {
+const char *get_type(const ltc::Type type) {
 	if (type > ltc::Type::UNKNOWN) {
 		return aTypes[static_cast<uint32_t>(ltc::Type::UNKNOWN)];
 	}
@@ -45,7 +45,16 @@ const char* get_type(ltc::Type type) {
 	return aTypes[static_cast<uint32_t>(type)];
 }
 
-ltc::Type get_type(uint8_t nFps) {
+
+const char *get_type() {
+	if (ltc::g_Type > ltc::Type::UNKNOWN) {
+		return aTypes[static_cast<uint32_t>(ltc::Type::UNKNOWN)];
+	}
+
+	return aTypes[static_cast<uint32_t>(ltc::g_Type)];
+}
+
+ltc::Type get_type(const uint8_t nFps) {
 	switch (nFps) {
 		case 24:
 			return ltc::Type::FILM;
@@ -64,6 +73,10 @@ ltc::Type get_type(uint8_t nFps) {
 	}
 
 	return ltc::Type::UNKNOWN;
+}
+
+void set_type(const uint8_t nFps) {
+	ltc::g_Type = get_type(nFps);
 }
 
 void init_timecode(char *pTimeCode) {
@@ -85,36 +98,36 @@ void init_systemtime(char *pSystemTime) {
 	pSystemTime[ltc::systemtime::index::COLON_2] = ':';
 }
 
-static void itoa_base10(int arg, char *pBuffer) {
+static void itoa(const uint32_t nValue, char *pBuffer) {
 	auto *p = pBuffer;
 
-	if (arg == 0) {
+	if (nValue == 0) {
 		*p++ = '0';
 		*p = '0';
 		return;
 	}
 
-	*p++ = static_cast<char>('0' + (arg / 10));
-	*p = static_cast<char>('0' + (arg % 10));
+	*p++ = static_cast<char>('0' + (nValue / 10U));
+	*p = static_cast<char>('0' + (nValue % 10U));
 }
 
 void itoa_base10(const struct ltc::TimeCode *ptLtcTimeCode, char *pTimeCode) {
 	assert(ptLtcTimeCode != nullptr);
 	assert(pTimeCode != nullptr);
 
-	itoa_base10(ptLtcTimeCode->nHours, &pTimeCode[ltc::timecode::index::HOURS]);
-	itoa_base10(ptLtcTimeCode->nMinutes, &pTimeCode[ltc::timecode::index::MINUTES]);
-	itoa_base10(ptLtcTimeCode->nSeconds, &pTimeCode[ltc::timecode::index::SECONDS]);
-	itoa_base10(ptLtcTimeCode->nFrames, &pTimeCode[ltc::timecode::index::FRAMES]);
+	itoa(ptLtcTimeCode->nHours, &pTimeCode[ltc::timecode::index::HOURS]);
+	itoa(ptLtcTimeCode->nMinutes, &pTimeCode[ltc::timecode::index::MINUTES]);
+	itoa(ptLtcTimeCode->nSeconds, &pTimeCode[ltc::timecode::index::SECONDS]);
+	itoa(ptLtcTimeCode->nFrames, &pTimeCode[ltc::timecode::index::FRAMES]);
 }
 
 void itoa_base10(const struct tm *pLocalTime, char *pSystemTime) {
 	assert(pLocalTime != nullptr);
 	assert(pSystemTime != nullptr);
 
-	itoa_base10(pLocalTime->tm_hour, &pSystemTime[ltc::systemtime::index::HOURS]);
-	itoa_base10(pLocalTime->tm_min, &pSystemTime[ltc::systemtime::index::MINUTES]);
-	itoa_base10(pLocalTime->tm_sec, &pSystemTime[ltc::systemtime::index::SECONDS]);
+	itoa(pLocalTime->tm_hour, &pSystemTime[ltc::systemtime::index::HOURS]);
+	itoa(pLocalTime->tm_min, &pSystemTime[ltc::systemtime::index::MINUTES]);
+	itoa(pLocalTime->tm_sec, &pSystemTime[ltc::systemtime::index::SECONDS]);
 }
 
 #define DIGIT(x)	((x) - '0')
@@ -218,7 +231,7 @@ bool parse_timecode(const char *pTimeCode, uint8_t nFps, struct ltc::TimeCode *p
 	return true;
 }
 
-bool parse_timecode_rate(const char *pTimeCodeRate, uint8_t &nFPS, ltc::Type &tType) {
+bool parse_timecode_rate(const char *pTimeCodeRate, uint8_t& nFPS) {
 	assert(pTimeCodeRate != nullptr);
 
 	const auto nTenths = DIGIT(pTimeCodeRate[0]);
@@ -237,23 +250,25 @@ bool parse_timecode_rate(const char *pTimeCodeRate, uint8_t &nFPS, ltc::Type &tT
 
 	switch (nValue) {
 	case 24:
-		tType = ltc::Type::FILM;
+		nFPS = 24;
+		ltc::g_Type = ltc::Type::FILM;
 		break;
 	case 25:
-		tType = ltc::Type::EBU;
+		nFPS = 25;
+		ltc::g_Type = ltc::Type::EBU;
 		break;
 	case 29:
-		tType = ltc::Type::DF;
+		nFPS = 30;
+		ltc::g_Type = ltc::Type::DF;
 		break;
 	case 30:
-		tType = ltc::Type::SMPTE;
+		nFPS = 30;
+		ltc::g_Type = ltc::Type::SMPTE;
 		break;
 	default:
 		return false;
 		break;
 	}
-
-	nFPS = nValue;
 
 	return true;
 }

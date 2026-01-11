@@ -2,7 +2,7 @@
  * @file ws28xxmulti.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,11 +23,16 @@
  * THE SOFTWARE.
  */
 
-#if !defined(__clang__)	// Needed for compiling on MacOS
+#if defined (DEBUG_PIXEL)
+# undef NDEBUG
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
 # pragma GCC push_options
 # pragma GCC optimize ("O3")
-# pragma GCC optimize ("-funroll-loops")
+# pragma GCC optimize ("no-tree-loop-distribute-patterns")
 # pragma GCC optimize ("-fprefetch-loop-arrays")
+# pragma GCC optimize ("-funroll-loops")
 #endif
 
 #include <cstdint>
@@ -44,27 +49,152 @@
 
 #include "jamstapl.h"
 
+#include "irq_timer.h"
+#include "h3_dma_memcpy32.h"
+
+#include "logic_analyzer.h"
 #include "debug.h"
 
-using namespace pixel;
+static volatile uint32_t sv_nUpdatesPerSecond;
+static volatile uint32_t sv_nUpdatesPrevious;
+static volatile uint32_t sv_nUpdates;
 
-WS28xxMulti *WS28xxMulti::s_pThis;
+static void arm_timer_handler() {
+	sv_nUpdatesPerSecond = sv_nUpdates - sv_nUpdatesPrevious;
+	sv_nUpdatesPrevious = sv_nUpdates;
+}
 
-WS28xxMulti::WS28xxMulti(PixelConfiguration& pixelConfiguration): m_PixelConfiguration(pixelConfiguration) {
+uint8_t WS28xxMulti::ReverseBits(uint8_t nBits) {
+	const uint32_t input = nBits;
+	uint32_t output;
+	asm("rbit %0, %1" : "=r"(output) : "r"(input));
+	return static_cast<uint8_t>((output >> 24));
+}
+
+void WS28xxMulti::Update() {
+	do { // https://github.com/vanvught/rpidmx512/issues/281
+		__ISB();
+	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
+
+	logic_analyzer::ch2_set();
+
+	dma::memcpy32(m_pDmaBuffer, m_pPixelDataBuffer, m_nBufSize);
+
+	while (dma::memcpy32_is_active());
+
+	logic_analyzer::ch2_clear();
+
+	FUNC_PREFIX(spi_dma_tx_start(m_pDmaBuffer, m_nBufSize));
+
+	sv_nUpdates = sv_nUpdates + 1;
+}
+
+void WS28xxMulti::Blackout() {
+	DEBUG_ENTRY
+
+	auto& pixelConfiguration = PixelConfiguration::Get();
+
+	const auto type = pixelConfiguration.GetType();
+	const auto nCount = pixelConfiguration.GetCount();
+
+	if ((type == pixel::Type::APA102) || (type == pixel::Type::SK9822) || (type == pixel::Type::P9813)) {
+		for (uint32_t nPortIndex = 0; nPortIndex < 8; nPortIndex++) {
+			SetPixel4Bytes(nPortIndex, 0, 0, 0, 0, 0);
+
+			for (uint32_t nPixelIndex = 1; nPixelIndex <= nCount; nPixelIndex++) {
+				SetPixel4Bytes(nPortIndex, nPixelIndex, 0, 0xE0, 0, 0);
+			}
+
+			if ((type == pixel::Type::APA102) || (type == pixel::Type::SK9822)) {
+				SetPixel4Bytes(nPortIndex, 1U + nCount, 0xFF, 0xFF, 0xFF, 0xFF);
+			} else {
+				SetPixel4Bytes(nPortIndex, 1U + nCount, 0, 0, 0, 0);
+			}
+		}
+	} else {
+		memset(m_pPixelDataBuffer, 0, m_nBufSize);
+	}
+
+	// Can be called any time.
+	do {
+		asm volatile ("isb" ::: "memory");
+	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
+
+	Update();
+
+	// May not be interrupted.
+	do {
+		asm volatile ("isb" ::: "memory");
+	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
+
+	DEBUG_EXIT
+}
+
+void WS28xxMulti::FullOn() {
+	DEBUG_ENTRY
+
+	auto& pixelConfiguration = PixelConfiguration::Get();
+
+	const auto type = pixelConfiguration.GetType();
+	const auto nCount = pixelConfiguration.GetCount();
+
+	if ((type == pixel::Type::APA102) || (type == pixel::Type::SK9822) || (type == pixel::Type::P9813)) {
+		for (uint32_t nPortIndex = 0; nPortIndex < 8; nPortIndex++) {
+			SetPixel4Bytes(nPortIndex, 0, 0, 0, 0, 0);
+
+			for (uint32_t nPixelIndex = 1; nPixelIndex <= nCount; nPixelIndex++) {
+				SetPixel4Bytes(nPortIndex, nPixelIndex, 0xFF, 0xE0, 0xFF, 0xFF);
+			}
+
+			if ((type == pixel::Type::APA102) || (type == pixel::Type::SK9822)) {
+				SetPixel4Bytes(nPortIndex, 1U + nCount, 0xFF, 0xFF, 0xFF, 0xFF);
+			} else {
+				SetPixel4Bytes(nPortIndex, 1U + nCount, 0, 0, 0, 0);
+			}
+		}
+	} else {
+		memset(m_pPixelDataBuffer, 0xFF, m_nBufSize);
+	}
+
+	// Can be called any time.
+	do {
+		asm volatile ("isb" ::: "memory");
+	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
+
+	Update();
+
+	// May not be interrupted.
+	do {
+		asm volatile ("isb" ::: "memory");
+	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
+
+	DEBUG_EXIT
+}
+
+uint32_t  WS28xxMulti::GetUserData() {
+	return sv_nUpdatesPerSecond;
+}
+
+#pragma GCC pop_options
+#pragma GCC push_options
+#pragma GCC optimize ("Os")
+
+WS28xxMulti::WS28xxMulti() {
 	DEBUG_ENTRY
 
 	assert(s_pThis == nullptr);
 	s_pThis = this;
 
-	uint32_t nLedsPerPixel;
-	m_PixelConfiguration.Validate(nLedsPerPixel);
+	auto& pixelConfiguration = PixelConfiguration::Get();
 
-	const auto nCount = m_PixelConfiguration.GetCount();
-	m_nBufSize = nCount * nLedsPerPixel;
+	pixelConfiguration.Validate();
 
-	const auto type = m_PixelConfiguration.GetType();
+	const auto nCount = pixelConfiguration.GetCount();
+	m_nBufSize = nCount * pixelConfiguration.GetLedsPerPixel();
 
-	if ((type == Type::APA102) || (type == Type::SK9822) || (type == Type::P9813)) {
+	const auto type = pixelConfiguration.GetType();
+
+	if ((type == pixel::Type::APA102) || (type == pixel::Type::SK9822) || (type == pixel::Type::P9813)) {
 		m_nBufSize += nCount;
 		m_nBufSize += 8;
 	}
@@ -73,20 +203,20 @@ WS28xxMulti::WS28xxMulti(PixelConfiguration& pixelConfiguration): m_PixelConfigu
 
 	DEBUG_PRINTF("m_nBufSize=%d", m_nBufSize);
 
-	const auto nLowCode = m_PixelConfiguration.GetLowCode();
-	const auto nHighCode = m_PixelConfiguration.GetHighCode();
+	const auto nLowCode = pixelConfiguration.GetLowCode();
+	const auto nHighCode = pixelConfiguration.GetHighCode();
 
 	m_hasCPLD = SetupCPLD();
 
 	SetupHC595(ReverseBits(nLowCode), ReverseBits(nHighCode));
 
-	if (m_PixelConfiguration.IsRTZProtocol()) {
-		SetupSPI(m_PixelConfiguration.GetClockSpeedHz());
+	if (pixelConfiguration.IsRTZProtocol()) {
+		SetupSPI(pixelConfiguration.GetClockSpeedHz());
 	} else {
 		if (m_hasCPLD) {
-			SetupSPI(m_PixelConfiguration.GetClockSpeedHz() * 6);
+			SetupSPI(pixelConfiguration.GetClockSpeedHz() * 6);
 		} else {
-			SetupSPI(m_PixelConfiguration.GetClockSpeedHz() * 4);
+			SetupSPI(pixelConfiguration.GetClockSpeedHz() * 4);
 		}
 	}
 
@@ -94,13 +224,20 @@ WS28xxMulti::WS28xxMulti(PixelConfiguration& pixelConfiguration): m_PixelConfigu
 
 	SetupBuffers();
 
+	sv_nUpdatesPerSecond = 0;
+	sv_nUpdatesPrevious = 0;
+	sv_nUpdates = 0;
+
+	irq_timer_arm_physical_set(static_cast<thunk_irq_timer_arm_t>(arm_timer_handler));
+	irq_handler_init();
+
+	dma::memcpy32_init();
+
 	printf("Board: %s\n", m_hasCPLD ? "CPLD" : "74-logic");
 }
 
 WS28xxMulti::~WS28xxMulti() {
-	m_pDmaBufferBlackout = nullptr;
 	m_pDmaBuffer = nullptr;
-
 	s_pThis = nullptr;
 }
 
@@ -112,37 +249,9 @@ void WS28xxMulti::SetupBuffers() {
 	m_pDmaBuffer = const_cast<uint8_t*>(FUNC_PREFIX(spi_dma_tx_prepare(&nSize)));
 	assert(m_pDmaBuffer != nullptr);
 
-	const uint32_t nSizeHalf = nSize / 2;
-	assert(m_nBufSize <= nSizeHalf);
+	memset(m_pDmaBuffer, 0, nSize);
 
-	m_pDmaBufferBlackout = m_pDmaBuffer + (nSizeHalf & static_cast<uint32_t>(~3));
-
-	const auto type = m_PixelConfiguration.GetType();
-	const auto nCount = m_PixelConfiguration.GetCount();
-
-	if ((type == Type::APA102) || (type == Type::SK9822) || (type == Type::P9813)) {
-		DEBUG_PUTS("SPI");
-
-		for (uint32_t nPortIndex = 0; nPortIndex < 8; nPortIndex++) {
-			SetPixel(nPortIndex, 0, 0, 0, 0, 0);
-
-			for (uint32_t nPixelIndex = 1; nPixelIndex <= nCount; nPixelIndex++) {
-				SetPixel(nPortIndex, nPixelIndex, 0, 0xE0, 0, 0);
-			}
-
-			if ((type == Type::APA102) || (type == Type::SK9822)) {
-				SetPixel(nPortIndex, 1U + nCount, 0xFF, 0xFF, 0xFF, 0xFF);
-			} else {
-				SetPixel(nPortIndex, 1U + nCount, 0, 0, 0, 0);
-			}
-		}
-
-		memcpy(m_pDmaBufferBlackout, m_pBuffer, m_nBufSize);
-	} else {
-		memset(m_pDmaBufferBlackout, 0, m_nBufSize);
-	}
-
-	DEBUG_PRINTF("nSize=%x, m_pDmaBuffer=%p, m_pDmaBufferBlackout=%p", nSize, m_pDmaBuffer, m_pDmaBufferBlackout);
+	DEBUG_PRINTF("nSize=%x, m_pBuffer1=%p, m_pDmaBuffer=%p", nSize, m_pPixelDataBuffer, m_pDmaBuffer);
 	DEBUG_EXIT
 }
 
@@ -211,224 +320,3 @@ bool WS28xxMulti::SetupCPLD() {
 	return false;
 }
 
-uint8_t WS28xxMulti::ReverseBits(uint8_t nBits) {
-	const uint32_t input = nBits;
-	uint32_t output;
-	asm("rbit %0, %1" : "=r"(output) : "r"(input));
-	return static_cast<uint8_t>((output >> 24));
-}
-
-#define BIT_SET(a,b) 	((a) |= static_cast<uint8_t>((1<<(b))))
-#define BIT_CLEAR(a,b) 	((a) &= static_cast<uint8_t>(~(1<<(b))))
-
-void WS28xxMulti::SetColour(uint32_t nPortIndex, uint32_t nPixelIndex, uint8_t nColour1, uint8_t nColour2, uint8_t nColour3) {
-	uint32_t j = 0;
-	const uint32_t k = nPixelIndex * pixel::single::RGB;
-
-	for (uint8_t mask = 0x80; mask != 0; mask = static_cast<uint8_t>(mask >> 1)) {
-		if (mask & nColour1) {
-			BIT_SET(m_pBuffer[k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[k + j], nPortIndex);
-		}
-		if (mask & nColour2) {
-			BIT_SET(m_pBuffer[8 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[8 + k + j], nPortIndex);
-		}
-		if (mask & nColour3) {
-			BIT_SET(m_pBuffer[16 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[16 + k + j], nPortIndex);
-		}
-
-		j++;
-	}
-}
-
-void WS28xxMulti::SetPixel4Bytes(uint32_t nPortIndex, uint32_t nPixelIndex, uint8_t nRed, uint8_t nGreen, uint8_t nBlue, uint8_t nWhite) {
-	const auto k = nPixelIndex * pixel::single::RGBW;
-	uint32_t j = 0;
-
-	for (uint8_t mask = 0x80; mask != 0; mask = static_cast<uint8_t>(mask >> 1)) {
-		// GRBW
-		if (mask & nGreen) {
-			BIT_SET(m_pBuffer[k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[k + j], nPortIndex);
-		}
-
-		if (mask & nRed) {
-			BIT_SET(m_pBuffer[8 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[8 + k + j], nPortIndex);
-		}
-
-		if (mask & nBlue) {
-			BIT_SET(m_pBuffer[16 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[16 + k + j], nPortIndex);
-		}
-
-		if (mask & nWhite) {
-			BIT_SET(m_pBuffer[24 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[24 + k + j], nPortIndex);
-		}
-
-		j++;
-	}
-}
-
-void WS28xxMulti::SetPixel(uint32_t nPortIndex, uint32_t nPixelIndex, uint8_t nRed, uint8_t nGreen, uint8_t nBlue) {
-//	const auto pGammaTable = m_PixelConfiguration.GetGammaTable();
-//
-//	nRed = pGammaTable[nRed];
-//	nGreen = pGammaTable[nGreen];
-//	nBlue = pGammaTable[nBlue];
-
-	const auto type = m_PixelConfiguration.GetType();
-
-	if ((m_PixelConfiguration.IsRTZProtocol()) || (type == Type::WS2801)) {
-		SetColour(nPortIndex, nPixelIndex, nRed, nGreen, nBlue);
-		return;
-	}
-
-	if ((type == Type::APA102) || (type == Type::SK9822)) {
-		SetPixel4Bytes(nPortIndex, 1 + nPixelIndex, nBlue, m_PixelConfiguration.GetGlobalBrightness(), nGreen, nRed);
-		return;
-	}
-
-	if (type == Type::P9813) {
-		const auto nFlag = static_cast<uint8_t>(0xC0 | ((~nBlue & 0xC0) >> 2) | ((~nGreen & 0xC0) >> 4) | ((~nRed & 0xC0) >> 6));
-		SetPixel4Bytes(nPortIndex, 1+ nPixelIndex, nRed, nFlag, nGreen, nBlue);
-		return;
-	}
-
-	assert(0);
-	__builtin_unreachable();
-}
-
-void WS28xxMulti::SetPixel(uint32_t nPortIndex, uint32_t nPixelIndex, uint8_t nRed, uint8_t nGreen, uint8_t nBlue, uint8_t nWhite) {
-	const auto pGammaTable = m_PixelConfiguration.GetGammaTable();
-
-	nRed = pGammaTable[nRed];
-	nGreen = pGammaTable[nGreen];
-	nBlue = pGammaTable[nBlue];
-	nWhite = pGammaTable[nWhite];
-
-	const auto k = nPixelIndex * pixel::single::RGBW;
-	uint32_t j = 0;
-
-	for (uint8_t mask = 0x80; mask != 0; mask = static_cast<uint8_t>(mask >> 1)) {
-		// GRBW
-		if (mask & nGreen) {
-			BIT_SET(m_pBuffer[k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[k + j], nPortIndex);
-		}
-
-		if (mask & nRed) {
-			BIT_SET(m_pBuffer[8 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[8 + k + j], nPortIndex);
-		}
-
-		if (mask & nBlue) {
-			BIT_SET(m_pBuffer[16 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[16 + k + j], nPortIndex);
-		}
-
-		if (mask & nWhite) {
-			BIT_SET(m_pBuffer[24 + k + j], nPortIndex);
-		} else {
-			BIT_CLEAR(m_pBuffer[24 + k + j], nPortIndex);
-		}
-
-		j++;
-	}
-}
-
-inline void memcpy64(void *dest, void const *src, size_t n) {
-	auto *plDst = reinterpret_cast<uint64_t *>(dest);
-	const auto *plSrc = reinterpret_cast<const uint64_t *>(src);
-
-	while (n >= 8) {
-		*plDst++ = *plSrc++;
-		n -= 8;
-	}
-
-	auto *pcDst = reinterpret_cast<uint8_t *>(plDst);
-	const auto *pcSrc = reinterpret_cast<const uint8_t *>(plSrc);
-
-	while (n--) {
-		*pcDst++ = *pcSrc++;
-	}
-}
-
-void WS28xxMulti::Update() {
-	assert(!FUNC_PREFIX(spi_dma_tx_is_active()));
-
-	memcpy64(m_pDmaBuffer, reinterpret_cast<void *>(H3_SRAM_A1_BASE + 4096), m_nBufSize);
-
-	FUNC_PREFIX(spi_dma_tx_start(m_pDmaBuffer, m_nBufSize));
-}
-
-void WS28xxMulti::Blackout() {
-	DEBUG_ENTRY
-
-	// Can be called any time.
-	do {
-		asm volatile ("isb" ::: "memory");
-	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
-
-	FUNC_PREFIX(spi_dma_tx_start(m_pDmaBufferBlackout, m_nBufSize));
-
-	// A blackout may not be interrupted.
-	do {
-		asm volatile ("isb" ::: "memory");
-	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
-
-	DEBUG_EXIT
-}
-
-void WS28xxMulti::FullOn() {
-	DEBUG_ENTRY
-
-	// Can be called any time.
-	do {
-		asm volatile ("isb" ::: "memory");
-	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
-
-	const auto type = m_PixelConfiguration.GetType();
-
-	if ((type == Type::APA102) || (type == Type::SK9822) || (type == Type::P9813)) {
-		for (uint32_t nPortIndex = 0; nPortIndex < 8; nPortIndex++) {
-			SetPixel(nPortIndex, 0, 0, 0, 0, 0);
-
-			const auto nCount = m_PixelConfiguration.GetCount();
-
-			for (uint32_t nPixelIndex = 1; nPixelIndex <= nCount; nPixelIndex++) {
-				SetPixel(nPortIndex, nPixelIndex, 0xFF, 0xE0, 0xFF, 0xFF);
-			}
-
-			if ((type == Type::APA102) || (type == Type::SK9822)) {
-				SetPixel(nPortIndex, 1U + nCount, 0xFF, 0xFF, 0xFF, 0xFF);
-			} else {
-				SetPixel(nPortIndex, 1U + nCount, 0, 0, 0, 0);
-			}
-		}
-	} else {
-		memset(m_pBuffer, 0xFF, m_nBufSize);
-	}
-
-	Update();
-
-	// May not be interrupted.
-	do {
-		asm volatile ("isb" ::: "memory");
-	} while (FUNC_PREFIX(spi_dma_tx_is_active()));
-
-	DEBUG_EXIT
-}

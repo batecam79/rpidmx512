@@ -2,7 +2,7 @@
  * @file remoteconfig.h
  *
  */
-/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -62,7 +62,7 @@
 
 namespace remoteconfig {
 namespace udp {
-static constexpr auto BUFFER_SIZE = 1024;
+static constexpr auto BUFFER_SIZE = 1420;
 } // namespace udp
 
 enum class Node {
@@ -128,6 +128,7 @@ enum class TxtFile {
 	RGBPANEL,
 	LTCETC,
 	NODE,
+	ENV,
 	LAST
 };
 
@@ -204,30 +205,7 @@ public:
 	uint32_t HandleGet(void *pBuffer, uint32_t nBufferLength);
 	void HandleSet(void *pBuffer, uint32_t nBufferLength);
 
-	void Run() {
-		if (__builtin_expect((m_bDisable), 1)) {
-			return;
-		}
-
-#if defined (ENABLE_TFTP_SERVER)
-		if (__builtin_expect((m_pTFTPFileServer != nullptr), 0)) {
-			m_pTFTPFileServer->Run();
-		}
-#endif
-
-#if defined (ENABLE_HTTPD)
-		m_pHttpDaemon->Run();
-#endif
-
-		uint16_t nForeignPort;
-		m_nBytesReceived = Network::Get()->RecvFrom(m_nHandle, const_cast<const void **>(reinterpret_cast<void **>(&s_pUdpBuffer)), &m_nIPAddressFrom, &nForeignPort);
-
-		if (__builtin_expect((m_nBytesReceived < 4), 1)) {
-			return;
-		}
-
-		HandleRequest();
-	}
+	void Input(const uint8_t *, uint32_t, uint32_t, uint16_t);
 
 	static RemoteConfig *Get() {
 		return s_pThis;
@@ -238,7 +216,9 @@ private:
 	void HandleReboot();
 	void HandleFactory();
 	void HandleList();
+#if !defined (CONFIG_REMOTECONFIG_MINIMUM)
 	void HandleUptime();
+#endif
 	void HandleVersion();
 
 	void HandleGetNoParams() {
@@ -246,6 +226,7 @@ private:
 	}
 
 	void HandleGetRconfigTxt(uint32_t& nSize);
+	void HandleGetEnvTxt(uint32_t& nSize);
 	void HandleGetNetworkTxt(uint32_t& nSize);
 
 #if defined (DISPLAY_UDF)
@@ -296,7 +277,7 @@ private:
 #if defined (RDM_RESPONDER)
 	void HandleGetRdmDeviceTxt(uint32_t& nSize);
 	void HandleGetRdmSensorsTxt(uint32_t& nSize);
-# if defined (ENABLE_RDM_SUBDEVICES)
+# if defined (CONFIG_RDM_ENABLE_SUBDEVICES)
 	void HandleGetRdmSubdevTxt(uint32_t& nSize);
 # endif
 #endif
@@ -354,7 +335,8 @@ private:
 	void HandleGetPca9685Txt(uint32_t& nSize);
 #endif
 
-	void HandleSetRconfig();
+	void HandleSetRconfigTxt();
+	void HandleSetEnvTxt();
 	void HandleSetNetworkTxt();
 
 #if defined (DISPLAY_UDF)
@@ -405,7 +387,7 @@ private:
 #if defined (RDM_RESPONDER)
 	void HandleSetRdmDeviceTxt();
 	void HandleSetRdmSensorsTxt();
-# if defined (ENABLE_RDM_SUBDEVICES)
+# if defined (CONFIG_RDM_ENABLE_SUBDEVICES)
 	void HandleSetRdmSubdevTxt();
 # endif
 #endif
@@ -474,9 +456,14 @@ private:
 	void PlatformHandleTftpGet();
 
 private:
-	remoteconfig::Node m_tNode;
-	remoteconfig::Output m_tOutput;
+	remoteconfig::Node m_Node;
+	remoteconfig::Output m_Output;
 	uint32_t m_nActiveOutputs;
+
+	char *m_pUdpBuffer { nullptr };
+	int32_t m_nHandle { -1 };
+	uint32_t m_nIPAddressFrom { 0 };
+	uint32_t m_nBytesReceived { 0 };
 
 	struct Commands {
 		void (RemoteConfig::*pHandler)();
@@ -493,20 +480,17 @@ private:
 		void (RemoteConfig::*SetHandler)();
 		const char *pFileName;
 		const uint8_t nFileNameLength;
-		const configstore::Store nStore;
 	};
 
 	static const Txt s_TXT[];
 
 	struct ListBin {
-		uint8_t aMacAddress[network::MAC_SIZE];
+		uint8_t aMacAddress[net::MAC_SIZE];
 		uint8_t nNode;
 		uint8_t nOutput;
 		uint8_t nActiveOutputs;
 		char aDisplayName[remoteconfig::DISPLAY_NAME_LENGTH];
 	};
-
-	static ListBin s_RemoteConfigListBin;
 
 	bool m_bDisable { false };
 	bool m_bDisableWrite { false };
@@ -515,10 +499,6 @@ private:
 	bool m_bEnableFactory { false };
 
 	bool m_bIsReboot { false };
-
-	int32_t m_nHandle { -1 };
-	uint32_t m_nIPAddressFrom { 0 };
-	uint32_t m_nBytesReceived { 0 };
 
 #if defined(ENABLE_TFTP_SERVER)
 	TFTPFileServer *m_pTFTPFileServer { nullptr };
@@ -529,9 +509,13 @@ private:
 	HttpDaemon *m_pHttpDaemon { nullptr };
 #endif
 
-	static char *s_pUdpBuffer;
 
-	static RemoteConfig *s_pThis;
+	void static StaticCallbackFunction(const uint8_t *pBuffer, uint32_t nSize, uint32_t nFromIp, uint16_t nFromPort) {
+		RemoteConfig::Get()->Input(pBuffer, nSize, nFromIp, nFromPort);
+	}
+
+	static inline ListBin s_RemoteConfigListBin;
+	static inline RemoteConfig *s_pThis;
 };
 
 #endif /* REMOTECONFIG_H_ */

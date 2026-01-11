@@ -26,14 +26,14 @@
 #ifndef GD32_BOARD_DMX3_H_
 #define GD32_BOARD_DMX3_H_
 
+#include <cstdint>
 #include "gd32_board.h"
 
-namespace max {
-static constexpr auto OUT = 3U;
-static constexpr auto IN = 3U;
-}  // namespace max
-
 #define DMX_MAX_PORTS  3
+
+namespace max {
+	static constexpr uint32_t PORTS = DMX_MAX_PORTS;
+}  // namespace max
 
 #define DMX_USE_USART2
 #define DMX_USE_UART4

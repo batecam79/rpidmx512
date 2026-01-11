@@ -2,7 +2,7 @@
  * @file ltcdisplaymax7219matrix.h
  *
  */
-/* Copyright (C) 2019-2022	 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2022	 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,15 +32,15 @@
 
 #include "max7219matrix.h"
 
-namespace ltc {
-namespace display {
-namespace max7219 {
-namespace maxtrix {
+
+
+
+namespace ltc::display::max7219::maxtrix {
 static constexpr auto SEGMENTS	= 8;
-}  // namespace maxtrix
-}  // namespace max7219
-}  // namespace display
-}  // namespace ltc
+} // namespace ltc::display::max7219::maxtrix
+
+
+
 
 class LtcDisplayMax7219Matrix final: public LtcDisplayMax7219Set, public Max7219Matrix {
 public:

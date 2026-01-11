@@ -2,7 +2,7 @@
  * @file sparkfundmxparams.cpp
  *
  */
-/* Copyright (C) 2019-2020 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,11 +22,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
-#if !defined(__clang__)	// Needed for compiling on MacOS
- #pragma GCC push_options
- #pragma GCC optimize ("Os")
-#endif
 
 #include <cstdint>
 #include <cstring>
@@ -69,7 +64,7 @@ void SparkFunDmxParams::Load() {
 	m_Params.nSetList = 0;
 
 #if !defined(DISABLE_FS)
-	ReadConfigFile configfile(SparkFunDmxParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(SparkFunDmxParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(SparkFunDmxParamsConst::FILE_NAME)) {
 		SparkFunDmxParamsStore::Update(&m_Params);
@@ -91,7 +86,7 @@ void SparkFunDmxParams::Load(const char *pBuffer, uint32_t nLength) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(SparkFunDmxParams::staticCallbackFunction, this);
+	ReadConfigFile config(SparkFunDmxParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
@@ -111,7 +106,7 @@ void SparkFunDmxParams::Load(uint32_t nMotorIndex) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile configfile(SparkFunDmxParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(SparkFunDmxParams::StaticCallbackFunction, this);
 
 #if !defined(DISABLE_FS)
 	if (configfile.Read(m_aFileName)) {
@@ -134,7 +129,7 @@ void SparkFunDmxParams::Load(uint32_t nMotorIndex, const char *pBuffer, uint32_t
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(SparkFunDmxParams::staticCallbackFunction, this);
+	ReadConfigFile config(SparkFunDmxParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
@@ -264,7 +259,7 @@ void SparkFunDmxParams::SetLocal(SparkFunDmx *pSparkFunDmx) {
 	}
 }
 
-void SparkFunDmxParams::Dump(__attribute__((unused)) uint32_t nMotorIndex) {
+void SparkFunDmxParams::Dump([[maybe_unused]] uint32_t nMotorIndex) {
 	assert(SPARKFUN_DMX_MAX_MOTORS <= 9);
 
 	if (nMotorIndex >= SPARKFUN_DMX_MAX_MOTORS) {
@@ -285,7 +280,7 @@ void SparkFunDmxParams::Dump(__attribute__((unused)) uint32_t nMotorIndex) {
 	printf(" %s=%d [%u]\n", SparkFunDmxParamsConst::BUSY_PIN, m_Params.nBusyPin, isMaskSet(sparkfundmxparams::Mask::BUSY_PIN));
 }
 
-void SparkFunDmxParams::staticCallbackFunction(void *p, const char *s) {
+void SparkFunDmxParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 

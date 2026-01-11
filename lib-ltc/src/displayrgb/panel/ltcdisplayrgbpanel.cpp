@@ -2,7 +2,7 @@
  * @file ltcdisplayrgbpanel.cpp
  */
 /*
- * Copyright (C) 2020-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+ * Copyright (C) 2020-2023 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -164,7 +164,7 @@ void LtcDisplayRgbPanel::ShowInfo(const char *pInfo, uint32_t nLength, struct Co
 	m_pRgbPanel->Show();
 }
 
-void LtcDisplayRgbPanel::WriteChar(__attribute__((unused)) uint8_t nChar, __attribute__((unused)) uint8_t nPos, __attribute__((unused)) struct Colours &tColours) {
+void LtcDisplayRgbPanel::WriteChar([[maybe_unused]] uint8_t nChar, [[maybe_unused]] uint8_t nPos, [[maybe_unused]] struct Colours &tColours) {
 	DEBUG_ENTRY
 	// TODO Implement WriteChar
 	DEBUG_EXIT

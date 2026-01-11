@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2021-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,20 +23,22 @@
  * THE SOFTWARE.
  */
 
+#pragma GCC push_options
+#pragma GCC optimize ("O2")
+#pragma GCC optimize ("no-tree-loop-distribute-patterns")
+
 #include <cstdint>
 #include <cstdio>
 #include <cassert>
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
 
-#include "mdns.h"
+#include "net/apps/mdns.h"
 
 #include "displayudf.h"
 #include "displayudfparams.h"
 #include "displayhandler.h"
-#include "display_timeout.h"
 
 #include "ddpdisplay.h"
 
@@ -46,14 +48,13 @@
 #include "pixeldmxparams.h"
 #include "ws28xxmulti.h"
 #include "ws28xxdmxmulti.h"
-#include "ws28xxdmxstartstop.h"
+
 #include "handleroled.h"
 
 #include "dmxparams.h"
 #include "dmxsend.h"
-#include "dmxconfigudp.h"
 
-#include "lightset32with4.h"
+#include "lightsetwith4.h"
 
 #if defined (NODE_RDMNET_LLRP_ONLY)
 # include "rdmdeviceparams.h"
@@ -70,32 +71,27 @@
 #include "flashcodeinstall.h"
 #include "configstore.h"
 
-
-
 #include "firmwareversion.h"
 #include "software_version.h"
 
-void Hardware::RebootHandler() {
+namespace hal {
+void reboot_handler() {
 	WS28xxMulti::Get()->Blackout();
 	DdpDisplay::Get()->Stop();
 }
+}  // namespace hal
 
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print("DDP Pixel controller 8x 4U with 2x DMX");
-	nw.Print();
-
-
-	mDns.ServiceRecordAdd(nullptr, mdns::Services::DDP, "type=display");
+	
+	mdns_service_record_add(nullptr, mdns::Services::DDP, "type=display");
 
 	// LightSet A - Pixel - 32 Universes
 
@@ -103,17 +99,17 @@ void main() {
 
 	PixelDmxParams pixelDmxParams;
 	pixelDmxParams.Load();
-	pixelDmxParams.Set(&pixelDmxConfiguration);
+	pixelDmxParams.Set();
 
-	WS28xxDmxMulti pixelDmxMulti(pixelDmxConfiguration);
+	WS28xxDmxMulti pixelDmxMulti;
+
 	WS28xxMulti::Get()->SetJamSTAPLDisplay(new HandlerOled);
-	pixelDmxMulti.SetPixelDmxHandler(new PixelDmxStartStop);
 
 	DdpDisplay ddpDisplay;
 
-	const auto nActivePorts = pixelDmxMulti.GetOutputPorts();
+	const auto nActivePorts = pixelDmxConfiguration.GetOutputPorts();
 
-	ddpDisplay.SetCount(pixelDmxMulti.GetGroups(), pixelDmxMulti.GetChannelsPerPixel(), nActivePorts);
+	ddpDisplay.SetCount(pixelDmxConfiguration.GetGroups(), pixelDmxConfiguration.GetLedsPerPixel(), nActivePorts);
 
 	const auto nTestPattern = static_cast<pixelpatterns::Pattern>(pixelDmxParams.GetTestPattern());
 	PixelTestPattern pixelTestPattern(nTestPattern, nActivePorts);
@@ -129,22 +125,19 @@ void main() {
 	DmxSend dmxSend;
 	dmxSend.Print();
 
-	auto *pDmxConfigUdp = new DmxConfigUdp;
-	assert(pDmxConfigUdp != nullptr);
-
 	// LightSet 32with4
 
-	LightSet32with4 lightSet((PixelTestPattern::GetPattern() != pixelpatterns::Pattern::NONE) ? nullptr : &pixelDmxMulti, &dmxSend);
+	LightSetWith4<32> lightSet((PixelTestPattern::Get()->GetPattern() != pixelpatterns::Pattern::NONE) ? nullptr : &pixelDmxMulti, &dmxSend);
 	lightSet.Print();
 
 	ddpDisplay.SetOutput(&lightSet);
 	ddpDisplay.Print();
 
 #if defined (NODE_RDMNET_LLRP_ONLY)
-	display.TextStatus(RDMNetConst::MSG_CONFIG, Display7SegmentMessage::INFO_RDMNET_CONFIG, CONSOLE_YELLOW);
+	display.TextStatus(RDMNetConst::MSG_CONFIG, CONSOLE_YELLOW);
 
 	char aDescription[rdm::personality::DESCRIPTION_MAX_LENGTH + 1];
-	snprintf(aDescription, sizeof(aDescription) - 1, "DDP Display %u-%s:%d DMX 2x", nActivePorts, PixelType::GetType(WS28xxMulti::Get()->GetType()), WS28xxMulti::Get()->GetCount());
+	snprintf(aDescription, sizeof(aDescription) - 1, "DDP Display %u-%s:%d DMX 2x", nActivePorts, pixel::pixel_get_type(pixelDmxConfiguration.GetType()), pixelDmxConfiguration.GetCount());
 
 	char aLabel[RDM_DEVICE_LABEL_MAX_LENGTH + 1];
 	const auto nLength = snprintf(aLabel, sizeof(aLabel) - 1, "Orange Pi Zero Pixel-DMX");
@@ -178,10 +171,10 @@ void main() {
 	display.Show();
 
 	display.Printf(7, "%s:%d G%d %s",
-		PixelType::GetType(pixelDmxConfiguration.GetType()),
+		pixel::pixel_get_type(pixelDmxConfiguration.GetType()),
 		pixelDmxConfiguration.GetCount(),
 		pixelDmxConfiguration.GetGroupingCount(),
-		PixelType::GetMap(pixelDmxConfiguration.GetMap()));
+		pixel::pixel_get_map(pixelDmxConfiguration.GetMap()));
 
 	if (nTestPattern != pixelpatterns::Pattern::NONE) {
 		display.ClearLine(6);
@@ -194,16 +187,11 @@ void main() {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
-	display.TextStatus("DDP Display Start", Display7SegmentMessage::INFO_BRIDGE_START, CONSOLE_YELLOW);
+	display.TextStatus("DDP Display Start", CONSOLE_YELLOW);
 
 	ddpDisplay.Start();
 
-	display.TextStatus("DDP Display Started", Display7SegmentMessage::INFO_BRIDGE_START, CONSOLE_GREEN);
+	display.TextStatus("DDP Display Started", CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
@@ -211,16 +199,7 @@ void main() {
 		hw.WatchdogFeed();
 		nw.Run();
 		ddpDisplay.Run();
-		remoteConfig.Run();
-		configStore.Flash();
-		if (__builtin_expect((PixelTestPattern::GetPattern() != pixelpatterns::Pattern::NONE), 0)) {
-			pixelTestPattern.Run();
-		}
-		pDmxConfigUdp->Run();
-		mDns.Run();
-#if defined (NODE_RDMNET_LLRP_ONLY)
-		llrpOnlyDevice.Run();
-#endif
+		pixelTestPattern.Run();
 		display.Run();
 		hw.Run();
 	}

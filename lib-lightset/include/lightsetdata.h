@@ -2,7 +2,7 @@
  * @file lightsetdata.h
  *
  */
-/* Copyright (C) 2021-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -38,7 +38,7 @@
  * https://www.gd32-dmx.org/memory.html
  */
 # include "gd32.h"
-# if defined (GD32F450VI)
+# if defined (GD32F450VI) || defined (GD32H7XX)
 #  define SECTION_LIGHTSET __attribute__ ((section (".lightset")))
 # else
 #  define SECTION_LIGHTSET
@@ -73,16 +73,8 @@ public:
 		 Get().IMergeSourceB(nPortIndex, pData, nLength, mergeMode);
 	}
 
-	static void Set(LightSet *const pLightSet, uint32_t nPortIndex) {
-		Get().ISet(pLightSet, nPortIndex);
-	}
-
-	static void Output(LightSet *const pLightSet, uint32_t nPortIndex) {
-		Get().IOutput(pLightSet, nPortIndex);
-	}
-
-	static void OutputClear(LightSet *const pLightSet, uint32_t nPortIndex) {
-		Get().IOutputClear(pLightSet, nPortIndex);
+	static void Clear(uint32_t nPortIndex) {
+		Get().IClear(nPortIndex);
 	}
 
 	static void ClearLength(const uint32_t nPortIndex) {
@@ -144,27 +136,34 @@ private:
 		memcpy(m_OutputPort[nPortIndex].data, pData, nLength);
 	}
 
-	void ISet(LightSet *const pLightSet, const uint32_t nPortIndex) const {
-		assert(pLightSet != nullptr);
-		assert(nPortIndex < PORTS);
+//	void ISet(LightSet *const pLightSet, const uint32_t nPortIndex) const {
+//		assert(pLightSet != nullptr);
+//		assert(nPortIndex < PORTS);
+//
+//		pLightSet->SetData(nPortIndex, m_OutputPort[nPortIndex].data, m_OutputPort[nPortIndex].nLength, false);
+//	}
+//
+//	void IOutput(LightSet *const pLightSet, const uint32_t nPortIndex) const {
+//		assert(pLightSet != nullptr);
+//		assert(nPortIndex < PORTS);
+//
+//		pLightSet->SetData(nPortIndex, m_OutputPort[nPortIndex].data, m_OutputPort[nPortIndex].nLength, true);
+//	}
+//
+//	void IOutputClear(LightSet *const pLightSet, const uint32_t nPortIndex) {
+//		assert(pLightSet != nullptr);
+//		assert(nPortIndex < PORTS);
+//
+//		memset(m_OutputPort[nPortIndex].data, 0, dmx::UNIVERSE_SIZE);
+//		m_OutputPort[nPortIndex].nLength = dmx::UNIVERSE_SIZE;
+//		IOutput(pLightSet, nPortIndex);
+//	}
 
-		pLightSet->SetData(nPortIndex, m_OutputPort[nPortIndex].data, m_OutputPort[nPortIndex].nLength, false);
-	}
-
-	void IOutput(LightSet *const pLightSet, const uint32_t nPortIndex) const {
-		assert(pLightSet != nullptr);
-		assert(nPortIndex < PORTS);
-
-		pLightSet->SetData(nPortIndex, m_OutputPort[nPortIndex].data, m_OutputPort[nPortIndex].nLength, true);
-	}
-
-	void IOutputClear(LightSet *const pLightSet, const uint32_t nPortIndex) {
-		assert(pLightSet != nullptr);
+	void IClear(const uint32_t nPortIndex) {
 		assert(nPortIndex < PORTS);
 
 		memset(m_OutputPort[nPortIndex].data, 0, dmx::UNIVERSE_SIZE);
 		m_OutputPort[nPortIndex].nLength = dmx::UNIVERSE_SIZE;
-		IOutput(pLightSet, nPortIndex);
 	}
 
 	void IClearLength(const uint32_t nPortIndex) {
@@ -201,13 +200,13 @@ private:
 #endif
 
 	struct Source {
-		uint8_t data[dmx::UNIVERSE_SIZE];
+		uint8_t data[dmx::UNIVERSE_SIZE] __attribute__ ((aligned (4)));
 	};
 
 	struct OutputPort {
 		Source sourceA;
 		Source sourceB;
-		uint8_t data[dmx::UNIVERSE_SIZE];
+		uint8_t data[dmx::UNIVERSE_SIZE] __attribute__ ((aligned (4)));
 		uint32_t nLength;
 	};
 

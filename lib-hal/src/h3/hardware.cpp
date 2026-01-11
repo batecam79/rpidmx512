@@ -2,7 +2,7 @@
  * @file hardware.cpp
  *
  */
-/* Copyright (C) 2020-2021 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,19 +23,27 @@
  * THE SOFTWARE.
  */
 
+#if defined (DEBUG_HAL)
+# undef NDEBUG
+#endif
+
 #include <cstdint>
 #include <cstddef>
-#include <string.h>
+#include <cstdio>
 #include <time.h>
+#include <uuid/uuid.h>
 #include <cassert>
 
 #include "hardware.h"
 
+#include "h3.h"
 #include "h3_watchdog.h"
-#include "h3_sid.h"
 #include "h3_gpio.h"
 #include "h3_board.h"
+#include "irq_timer.h"
 
+#include "arm/arm.h"
+#include "arm/gic.h"
 #include "arm/synchronize.h"
 
 #if defined (DEBUG_I2C)
@@ -47,6 +55,54 @@
 #endif
 
 #include "logic_analyzer.h"
+
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC push_options
+# pragma GCC optimize ("O2")
+# if __GNUC__ > 8
+#  pragma GCC target ("general-regs-only")
+# endif
+#endif
+
+static void EXTIA_IRQHandler() {
+	DEBUG_PUTS("EXTIA_IRQHandler");
+
+	H3_PIO_PA_INT->STA = ~0;
+}
+
+static void EXTIG_IRQHandler() {
+	DEBUG_PUTS("EXTIG_IRQHandler");
+
+	H3_PIO_PG_INT->STA = ~0;
+}
+
+static void __attribute__((interrupt("IRQ"))) IRQ_Handler() {
+	__DMB();
+
+	const auto nIRQ = GICInterface->AIAR;
+	IRQHandler_t const handler = IRQ_GetHandler(nIRQ);
+
+	if (handler != nullptr) {
+		handler();
+	}
+
+	GICInterface->AEOIR = nIRQ;
+	const auto nIndex = nIRQ / 32;
+	const auto nMask = 1U << (nIRQ % 32);
+	GICDistributor->ICPENDR[nIndex] = nMask;
+
+	__DMB();
+}
+
+#pragma GCC pop_options
+
+namespace net {
+void net_shutdown();
+}  // namespace net
+
+namespace hal {
+void reboot_handler();
+}  // namespace hardware
 
 namespace soc {
 #if defined (ORANGE_PI)
@@ -75,8 +131,6 @@ namespace sysname {
 	static constexpr auto NAME_LENGTH = sizeof(NAME) - 1;
 }
 
-Hardware *Hardware::s_pThis = nullptr;
-
 void hardware_init();
 
 Hardware::Hardware() {
@@ -86,7 +140,7 @@ Hardware::Hardware() {
 	hardware_init();
 
 #if defined (DEBUG_I2C)
-	I2cDetect i2cdetect;
+	i2c_detect();
 #endif
 
 #if !defined(DISABLE_RTC)
@@ -98,6 +152,14 @@ Hardware::Hardware() {
 	hardware_led_set(1);
 
 	logic_analyzer::init();
+
+	IRQ_SetHandler(H3_PA_EINT_IRQn, EXTIA_IRQHandler);
+//	gic_irq_config(H3_PA_EINT_IRQn, GIC_CORE0);
+//
+	IRQ_SetHandler(H3_PG_EINT_IRQn, EXTIG_IRQHandler);
+//	gic_irq_config(H3_PG_EINT_IRQn, GIC_CORE0);
+
+	arm_install_handler((unsigned) IRQ_Handler, ARM_VECTOR(ARM_VECTOR_IRQ));
 }
 
 const char *Hardware::GetMachine(uint8_t &nLength) {
@@ -125,16 +187,21 @@ const char *Hardware::GetSocName(uint8_t &nLength) {
 	return soc::NAME;
 }
 
-#include <cstdio>
+void configstore_commit();
 
 bool Hardware::Reboot() {
-	printf("Rebooting ...\n");
+	puts("Rebooting ...");
 	
 	h3_watchdog_disable();
 
-	RebootHandler();
+	configstore_commit();
 
-	h3_watchdog_enable();
+#if !defined(DISABLE_RTC)
+	m_HwClock.SysToHc();
+#endif
+
+	hal::reboot_handler();
+	net::net_shutdown();
 
 	clean_data_cache();
 	invalidate_data_cache();
@@ -148,26 +215,12 @@ bool Hardware::Reboot() {
 
 	SetMode(hardware::ledblink::Mode::REBOOT);
 
+	h3_watchdog_enable();
+
 	for (;;) {
 		Run();
 	}
 
 	__builtin_unreachable();
 	return true;
-}
-
-typedef union pcast32 {
-	uuid_t uuid;
-	uint8_t u8[16];
-} _pcast32;
-
-void Hardware::GetUuid(uuid_t out) {
-	_pcast32 cast;
-
-	h3_sid_get_rootkey(&cast.u8[0]);
-
-	cast.uuid[6] = static_cast<char>(0x40 | (cast.uuid[6] & 0xf));
-	cast.uuid[8] = static_cast<char>(0x80 | (cast.uuid[8] & 0x3f));
-
-	memcpy(out, cast.uuid, sizeof(uuid_t));
 }

@@ -38,7 +38,7 @@
 #include "rdmpersonality.h"
 #include "rdmdeviceparams.h"
 #include "rdmsensorsparams.h"
-#if defined (ENABLE_RDM_SUBDEVICES)
+#if defined (CONFIG_RDM_ENABLE_SUBDEVICES)
 # include "rdmsubdevicesparams.h"
 #endif
 
@@ -62,28 +62,17 @@
 
 #include "factorydefaults.h"
 
-void Hardware::RebootHandler() {
 
-}
 
-void main() {
+int main() {
 	Hardware hw;
 	Display display;
 	ConfigStore configStore;
-#if !defined(NO_EMAC)
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
-#else
-	Network nw;
-#endif
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print();
-#if !defined(NO_EMAC)
-	nw.Print();
-#endif
 
 	LightSet *pBoard;
 
@@ -128,14 +117,13 @@ void main() {
 	rdmSensorsParams.Load();
 	rdmSensorsParams.Set();
 
-#if defined (ENABLE_RDM_SUBDEVICES)
+#if defined (CONFIG_RDM_ENABLE_SUBDEVICES)
 	RDMSubDevicesParams rdmSubDevicesParams;
 	rdmSubDevicesParams.Load();
 	rdmSubDevicesParams.Set();
 #endif
 
 	rdmResponder.Init();
-
 
 	RDMDeviceParams rdmDeviceParams;
 	rdmDeviceParams.Load();
@@ -150,7 +138,6 @@ void main() {
 	for(;;) {
 		hw.WatchdogFeed();
 		rdmResponder.Run();
-		configStore.Flash();
 		hw.Run();
 	}
 }

@@ -2,7 +2,7 @@
  * @file remoteconfig.cpp
  *
  */
-/* Copyright (C) 2022-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2022-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,11 +24,9 @@
  */
 
 #if defined(ENABLE_TFTP_SERVER)
-
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
-#endif
+# if defined (DEBUG_TFTP)
+#  undef NDEBUG
+# endif
 
 #include <cstdint>
 #include <cstdio>
@@ -39,6 +37,7 @@
 
 #include "tftp/tftpfileserver.h"
 #include "flashcodeinstall.h"
+#include "firmware.h"
 
 #include "display.h"
 
@@ -52,7 +51,7 @@ void RemoteConfig::PlatformHandleTftpSet() {
 	if (m_bEnableTFTP && (m_pTFTPFileServer == nullptr)) {
 		m_pTFTPFileServer = new TFTPFileServer(s_TFTPBuffer, FIRMWARE_MAX_SIZE);
 		assert(m_pTFTPFileServer != nullptr);
-		Display::Get()->TextStatus("TFTP On", Display7SegmentMessage::INFO_TFTP_ON, CONSOLE_GREEN);
+		Display::Get()->TextStatus("TFTP On", CONSOLE_GREEN);
 	} else if (!m_bEnableTFTP && (m_pTFTPFileServer != nullptr)) {
 		const uint32_t nFileSize = m_pTFTPFileServer->GetFileSize();
 		DEBUG_PRINTF("nFileSize=%d, %d", nFileSize, m_pTFTPFileServer->isDone());
@@ -63,7 +62,7 @@ void RemoteConfig::PlatformHandleTftpSet() {
 			bSucces = FlashCodeInstall::Get()->WriteFirmware(s_TFTPBuffer, nFileSize);
 
 			if (!bSucces) {
-				Display::Get()->TextStatus("Error: TFTP", Display7SegmentMessage::ERROR_TFTP, CONSOLE_RED);
+				Display::Get()->TextStatus("Error: TFTP", CONSOLE_RED);
 			}
 		}
 
@@ -71,7 +70,7 @@ void RemoteConfig::PlatformHandleTftpSet() {
 		m_pTFTPFileServer = nullptr;
 
 		if (bSucces) { // Keep error message
-			Display::Get()->TextStatus("TFTP Off", Display7SegmentMessage::INFO_TFTP_OFF, CONSOLE_GREEN);
+			Display::Get()->TextStatus("TFTP Off", CONSOLE_GREEN);
 		}
 	}
 
@@ -83,5 +82,4 @@ void RemoteConfig::PlatformHandleTftpGet() {
 
 	DEBUG_EXIT
 }
-
 #endif

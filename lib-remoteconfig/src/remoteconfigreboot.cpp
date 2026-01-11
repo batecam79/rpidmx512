@@ -47,14 +47,8 @@ void RemoteConfig::HandleReboot() {
 	m_bIsReboot = true;
 
 	Display::Get()->SetSleep(false);
-
-	while (ConfigStore::Get()->Flash())
-		;
-
-	Network::Get()->Shutdown();
-
 	Display::Get()->Cls();
-	Display::Get()->TextStatus("Rebooting ...", Display7SegmentMessage::INFO_REBOOTING);
+	Display::Get()->TextStatus("Rebooting ...");
 
 	Hardware::Get()->Reboot();
 	__builtin_unreachable() ;

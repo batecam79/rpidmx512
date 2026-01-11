@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,12 +29,8 @@
 
 #include "hardware.h"
 #include "network.h"
-#if !defined(NO_EMAC)
-# include "networkconst.h"
-#endif
 
 #include "displayudf.h"
-#include "display_timeout.h"
 
 #include "console.h"
 
@@ -55,17 +51,12 @@
 
 static constexpr auto TOP_ROW_STATS = 26;
 
-void Hardware::RebootHandler() {}
-
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 #if !defined(NO_EMAC)
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
-	nw.Print();
 #endif
 
 	console_clear();
@@ -95,9 +86,6 @@ void main() {
 	RemoteConfigParams remoteConfigParams;
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
-
-	while (configStore.Flash())
-		;
 #endif
 
 	dmxMonitor.Cls();
@@ -167,7 +155,6 @@ void main() {
 
 #if !defined(NO_EMAC)
 		nw.Run();
-		remoteConfig.Run();
 #endif
 		hw.Run();
 	}

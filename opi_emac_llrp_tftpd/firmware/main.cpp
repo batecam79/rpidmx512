@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,12 +23,15 @@
  * THE SOFTWARE.
  */
 
+#if !defined (NODE_RDMNET_LLRP_ONLY)
+# error
+#endif
+
 #include <cstdio>
+#include <cstring>
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
-
 
 #include "displayudf.h"
 #include "displayudfparams.h"
@@ -37,70 +40,42 @@
 #include "remoteconfig.h"
 #include "remoteconfigparams.h"
 
-#if defined (NODE_RDMNET_LLRP_ONLY)
-# include "rdmnetllrponly.h"
-#endif
-
-#include "mdns.h"
-
-#include "ntpclient.h"
+#include "rdmnetllrponly.h"
 
 #include "factorydefaults.h"
 
 #include "firmwareversion.h"
 #include "software_version.h"
 
-void Hardware::RebootHandler() {
+namespace hal {
+void reboot_handler() {
 	if (!RemoteConfig::Get()->IsReboot()) {
 		Display::Get()->SetSleep(false);
-
-		while (ConfigStore::Get()->Flash())
-			;
-
-		Network::Get()->Shutdown();
-
-		printf("Rebooting ...\n");
-
 		Display::Get()->Cls();
-		Display::Get()->TextStatus("Rebooting ...",
-		Display7SegmentMessage::INFO_REBOOTING);
+		Display::Get()->TextStatus("Rebooting ...");
 	}
 }
+}  // namespace hal
 
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print("RDMNet LLRP device only");
-	nw.Print();
 
-	NtpClient ntpClient;
-	ntpClient.Start();
-	ntpClient.Print();
-
-#if defined (NODE_RDMNET_LLRP_ONLY)
 	RDMNetLLRPOnly device;
 	device.Init();
 	device.Print();
-#endif
 
 	RemoteConfig remoteConfig(remoteconfig::Node::RDMNET_LLRP_ONLY, remoteconfig::Output::CONFIG, 0);
 
 	RemoteConfigParams remoteConfigParams;
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
-
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
 
 	display.SetTitle("LLRP Only - TFTP");
 	display.Set(2, displayudf::Labels::HOSTNAME);
@@ -115,20 +90,34 @@ void main() {
 	display.Show();
 
 	display.Write(6, "mDNS enabled");
-	display.TextStatus("Device running", Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
+	display.TextStatus("Device running", CONSOLE_GREEN);
 
 	hw.SetMode(hardware::ledblink::Mode::NORMAL);
 
+	auto t1 = time(nullptr);
+	struct tm tmHwClock;
+	memset(&tmHwClock, 0, sizeof(struct tm));
+
 	for (;;) {
 		nw.Run();
-		mDns.Run();
-#if defined (NODE_RDMNET_LLRP_ONLY)
-		device.Run();
-#endif
-		remoteConfig.Run();
-		ntpClient.Run();
-		configStore.Flash();
 		display.Run();
 		hw.Run();
+
+		time_t ltime;
+		auto t2 = time(&ltime);
+		if (t1 != t2) {
+			t1 = t2;
+			auto *tm = localtime(&ltime);
+			struct tm tmlocal;
+			memcpy(&tmlocal, tm, sizeof(struct tm));
+			HwClock::Get()->Get(&tmHwClock);
+			display.Printf(7, "%.2d:%.2d:%.2d %.2d:%.2d:%.2d",
+					tmlocal.tm_hour, tmlocal.tm_min, tmlocal.tm_sec,
+					tmHwClock.tm_hour, tmHwClock.tm_min, tmHwClock.tm_sec);
+			printf("%.2d:%.2d:%.2d %.2d:%.2d:%.2d\r",
+					tmlocal.tm_hour, tmlocal.tm_min, tmlocal.tm_sec,
+					tmHwClock.tm_hour, tmHwClock.tm_min, tmHwClock.tm_sec);
+		}
+
 	}
 }

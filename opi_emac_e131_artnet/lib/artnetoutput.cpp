@@ -2,7 +2,7 @@
  * @file artnetoutput.cpp
  *
  */
-/* Copyright (C) 2020-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -81,7 +81,7 @@ void ArtNetOutput::Stop(const uint32_t nPortIndex) {
 	DEBUG_EXIT
 }
 
-void ArtNetOutput::SetData(uint32_t nPortIndex, const uint8_t *pDmxData, uint32_t nLength, __attribute__((unused)) const bool doUpdate) {
+void ArtNetOutput::SetData(const uint32_t nPortIndex, const uint8_t *pDmxData, uint32_t nLength, [[maybe_unused]] const bool doUpdate) {
 	assert(nPortIndex < e131bridge::MAX_PORTS);
 
 	if (m_nUniverse[nPortIndex] != 0) {
@@ -89,11 +89,11 @@ void ArtNetOutput::SetData(uint32_t nPortIndex, const uint8_t *pDmxData, uint32_
 	}
 }
 
-void ArtNetOutput::Sync(__attribute__((unused)) uint32_t const nPortIndex) {
+void ArtNetOutput::Sync([[maybe_unused]] uint32_t const nPortIndex) {
 	//TODO Implement Sync
 }
 
-void ArtNetOutput::Sync(__attribute__((unused)) const bool doForce) {
+void ArtNetOutput::Sync() {
 	DEBUG_ENTRY
 
 	//TODO Implement Sync

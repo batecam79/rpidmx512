@@ -2,7 +2,7 @@
  * @file e131bridge.cpp
  *
  */
-/* Copyright (C) 2016-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2016-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,12 @@
  * THE SOFTWARE.
  */
 
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC push_options
+# pragma GCC optimize ("O2")
+# pragma GCC optimize ("no-tree-loop-distribute-patterns")
+#endif
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -39,15 +45,15 @@
 
 #include "lightset.h"
 #include "lightsetdata.h"
+#include "lightset_data.h"
 
 #include "hardware.h"
 #include "network.h"
 
+#include "softwaretimers.h"
 #include "panel_led.h"
 
 #include "debug.h"
-
-E131Bridge *E131Bridge::s_pThis = nullptr;
 
 E131Bridge::E131Bridge() {
 	DEBUG_ENTRY
@@ -71,13 +77,13 @@ E131Bridge::E131Bridge() {
 		m_InputPort[i].nPriority = 100;
 	}
 
-#if defined (E131_HAVE_DMXIN)
+#if defined (E131_HAVE_DMXIN) || defined (NODE_SHOWFILE)
 	char aSourceName[e131::SOURCE_NAME_LENGTH];
 	uint8_t nLength;
 	snprintf(aSourceName, e131::SOURCE_NAME_LENGTH, "%.48s %s", Network::Get()->GetHostName(), Hardware::Get()->GetBoardName(nLength));
 	SetSourceName(aSourceName);
 
-	Hardware::Get()->GetUuid(m_Cid);
+	hal::uuid_copy(m_Cid);
 #endif
 
 	m_nHandle = Network::Get()->Begin(e131::UDP_PORT);
@@ -94,18 +100,10 @@ E131Bridge::~E131Bridge() {
 
 void E131Bridge::Start() {
 #if defined (E131_HAVE_DMXIN)
-	if (m_pE131DataPacket == nullptr) {
-		const auto nIpMulticast = network::convert_to_uint(239, 255, 0, 0);
-		m_DiscoveryIpAddress = nIpMulticast | ((e131::universe::DISCOVERY & static_cast<uint32_t>(0xFF)) << 24) | ((e131::universe::DISCOVERY & 0xFF00) << 8);
-		// TE131DataPacket
-		m_pE131DataPacket = new TE131DataPacket;
-		assert(m_pE131DataPacket != nullptr);
-		FillDataPacket();
-		// TE131DiscoveryPacket
-		m_pE131DiscoveryPacket = new TE131DiscoveryPacket;
-		assert(m_pE131DiscoveryPacket != nullptr);
-		FillDiscoveryPacket();
-	}
+	const auto nIpMulticast = net::convert_to_uint(239, 255, 0, 0);
+	m_nDiscoveryIpAddress = nIpMulticast | ((e131::universe::DISCOVERY & static_cast<uint32_t>(0xFF)) << 24) | ((e131::universe::DISCOVERY & 0xFF00) << 8);
+	FillDataPacket();
+	FillDiscoveryPacket();
 
 	for (uint32_t nPortIndex = 0; nPortIndex < e131bridge::MAX_PORTS; nPortIndex++) {
 		if (m_Bridge.Port[nPortIndex].direction == lightset::PortDir::INPUT) {
@@ -114,6 +112,9 @@ void E131Bridge::Start() {
 	}
 
 	SetLocalMerging();
+
+	m_timerHandleSendDiscoveryPacket = SoftwareTimerAdd(e131::UNIVERSE_DISCOVERY_INTERVAL_SECONDS * 1000U, StaticCallbackFunctionSendDiscoveryPacket);
+	assert(m_timerHandleSendDiscoveryPacket >= 0);
 #endif
 
 #if defined (OUTPUT_HAVE_STYLESWITCH)
@@ -127,6 +128,10 @@ void E131Bridge::Start() {
 			}
 		}
 	}
+#endif
+
+#if !defined(E131_HAVE_ARTNET)
+	SoftwareTimerAdd(200, StaticCallbackFunctionLedPanelOff);
 #endif
 
 	m_State.status = e131bridge::Status::ON;
@@ -144,6 +149,8 @@ void E131Bridge::Stop() {
 	}
 
 #if defined (E131_HAVE_DMXIN)
+	SoftwareTimerDelete(m_timerHandleSendDiscoveryPacket);
+
 	for (uint32_t nPortIndex = 0; nPortIndex < e131bridge::MAX_PORTS; nPortIndex++) {
 		if (m_Bridge.Port[nPortIndex].direction == lightset::PortDir::INPUT) {
 			Dmx::Get()->SetPortDirection(nPortIndex, dmx::PortDirection::INP, false);
@@ -238,10 +245,10 @@ void E131Bridge::SetLocalMerging() {
 			if (m_Bridge.Port[nInputPortIndex].nUniverse == m_Bridge.Port[nOutputPortIndex].nUniverse) {
 
 				if (!m_Bridge.Port[nOutputPortIndex].bLocalMerge) {
-					m_OutputPort[nOutputPortIndex].sourceA.nIp = Network::Get()->GetIp();
+					m_OutputPort[nOutputPortIndex].sourceA.nIp = net::IPADDR_LOOPBACK;
 					DEBUG_PUTS("Local merge Source A");
 				} else {
-					m_OutputPort[nOutputPortIndex].sourceB.nIp = Network::Get()->GetIp();
+					m_OutputPort[nOutputPortIndex].sourceB.nIp = net::IPADDR_LOOPBACK;
 					DEBUG_PUTS("Local merge Source B");
 				}
 
@@ -571,7 +578,7 @@ void E131Bridge::HandleDmx() {
 			const auto doUpdate = ((!m_State.IsSynchronized) || (m_State.bDisableSynchronize));
 
 			if (doUpdate) {
-				lightset::Data::Output(m_pLightSet, nPortIndex);
+				lightset::data_output(m_pLightSet, nPortIndex);
 
 				if (!m_OutputPort[nPortIndex].IsTransmitting) {
 					m_pLightSet->Start(nPortIndex);
@@ -579,7 +586,8 @@ void E131Bridge::HandleDmx() {
 					m_State.IsChanged = true;
 				}
 			} else {
-				lightset::Data::Set(m_pLightSet, nPortIndex);
+				lightset::data_set(m_pLightSet, nPortIndex);
+				m_OutputPort[nPortIndex].IsDataPending = true;
 			}
 
 			m_State.nReceivingDmx |= (1U << static_cast<uint8_t>(lightset::PortDir::OUTPUT));
@@ -709,6 +717,12 @@ bool E131Bridge::IsValidDataPacket() {
 	return true;
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+# pragma GCC push_options
+# pragma GCC optimize ("O2")
+# pragma GCC optimize ("no-tree-loop-distribute-patterns")
+#endif
+
 void E131Bridge::Process() {
 	m_State.IsNetworkDataLoss = false;
 	m_nPreviousPacketMillis = m_nCurrentPacketMillis;
@@ -743,7 +757,6 @@ void E131Bridge::Process() {
 
 #if defined (E131_HAVE_DMXIN)
 	HandleDmxIn();
-	SendDiscoveryPacket();
 #endif
 
 	// The hardware::ledblink::Mode::FAST is for RDM Identify (Art-Net 4)

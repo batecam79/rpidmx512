@@ -2,7 +2,7 @@
  * @file http.h
  *
  */
-/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,6 @@
 #define HTTPD_HTTP_H_
 
 namespace http {
-static constexpr uint32_t BUFSIZE = 1440;
 enum class Status {
 	OK = 200,
 	BAD_REQUEST = 400,
@@ -41,11 +40,11 @@ enum class Status {
 	UNKNOWN_ERROR = 520
 };
 enum class RequestMethod {
-	GET, POST, UNKNOWN
+	GET, POST, DELETE, UNKNOWN
 };
 
 enum class contentTypes {
-	TEXT_HTML, TEXT_CSS, TEXT_JS, APPLICATION_JSON, NOT_DEFINED
+	TEXT_HTML, TEXT_CSS, TEXT_JS, APPLICATION_JSON, APPLICATION_OCTET_STREAM, NOT_DEFINED
 };
 }  // namespace http
 

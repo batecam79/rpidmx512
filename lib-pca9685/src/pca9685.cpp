@@ -328,7 +328,7 @@ void PCA9685::Dump() {
 	printf("\nPRE_SCALE register (address FEh) : %02Xh\n", reg);
 	printf("\t Frequency : %d Hz\n", CalcFrequency(reg));
 
-	printf("\n");
+	puts("");
 
 	uint16_t on, off;
 
@@ -338,7 +338,7 @@ void PCA9685::Dump() {
 		printf("LED%d_OFF : %04x\n", nLed, off);
 	}
 
-	printf("\n");
+	puts("");
 
 	Read(16, &on, &off);
 	printf("ALL_LED_ON  : %04x\n", on);
@@ -360,7 +360,7 @@ void PCA9685::AutoIncrement(bool bMode) {
 
 void PCA9685::I2cSetup() {
 	FUNC_PREFIX(i2c_set_address(m_nAddress));
-	FUNC_PREFIX(i2c_set_baudrate(hal::i2c::FULL_SPEED));
+	FUNC_PREFIX(i2c_set_baudrate(HAL_I2C::FULL_SPEED));
 }
 
 void PCA9685::I2cWriteReg(uint8_t reg, uint8_t data) {

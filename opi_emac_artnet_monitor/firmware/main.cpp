@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,11 +28,6 @@
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
-
-#include "mdns.h"
-
-#include "ntpclient.h"
 
 #include "console.h"
 #include "h3/showsystime.h"
@@ -49,32 +44,25 @@
 
 #include "dmxmonitor.h"
 
+#if defined (NODE_SHOWFILE)
+# include "showfile.h"
+# include "showfileparams.h"
+#endif
+
 #include "remoteconfig.h"
 #include "remoteconfigparams.h"
 
 #include "flashcodeinstall.h"
 #include "configstore.h"
 
-
 #include "firmwareversion.h"
 #include "software_version.h"
 
-namespace artnetnode {
-namespace configstore {
-uint32_t DMXPORT_OFFSET = 0;
-}  // namespace configstore
-}  // namespace artnetnode
-
-void Hardware::RebootHandler() { }
-
-void main() {
+int main() {
 	Hardware hw;
 	DisplayUdf display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
@@ -88,15 +76,7 @@ void main() {
 	console_set_fg_color(CONSOLE_WHITE);
 	console_set_top_row(2);
 
-	nw.Print();
-
-	NtpClient ntpClient;
-	ntpClient.Start();
-	ntpClient.Print();
-
 	ShowSystime showSystime;
-
-	display.TextStatus(ArtNetMsgConst::PARAMS, Display7SegmentMessage::INFO_NODE_PARMAMS, CONSOLE_YELLOW);
 
 	ArtNetNode node;
 
@@ -108,7 +88,21 @@ void main() {
 
 	TimeCode timecode;
 	timecode.Start();
-	node.SetTimeCodeHandler(&timecode);
+	node.SetArtTimeCodeCallbackFunction(TimeCode::StaticCallbackFunction);
+
+#if defined (NODE_SHOWFILE)
+	ShowFile showFile;
+
+	ShowFileParams showFileParams;
+	showFileParams.Load();
+	showFileParams.Set();
+
+	if (showFile.IsAutoStart()) {
+		showFile.Play();
+	}
+
+	showFile.Print();
+#endif
 
 	DMXMonitor monitor;
 	// There is support for HEX output only
@@ -129,7 +123,7 @@ void main() {
 	displayUdfParams.Load();
 	displayUdfParams.Set(&display);
 
-	display.Show(&node);
+	display.Show();
 
 	RemoteConfig remoteConfig(remoteconfig::Node::ARTNET, remoteconfig::Output::MONITOR, 1);
 
@@ -137,16 +131,11 @@ void main() {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
-	display.TextStatus(ArtNetMsgConst::START, Display7SegmentMessage::INFO_NODE_START, CONSOLE_YELLOW);
+	display.TextStatus(ArtNetMsgConst::START, CONSOLE_YELLOW);
 
 	node.Start();
 
-	display.TextStatus(ArtNetMsgConst::STARTED, Display7SegmentMessage::INFO_NODE_STARTED, CONSOLE_GREEN);
+	display.TextStatus(ArtNetMsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
@@ -154,11 +143,10 @@ void main() {
 		hw.WatchdogFeed();
 		nw.Run();
 		node.Run();
-		remoteConfig.Run();
-		configStore.Flash();
-		ntpClient.Run();
+#if defined (NODE_SHOWFILE)
+		showFile.Run();
+#endif
 		showSystime.Run();
-		mDns.Run();
 		display.Run();
 		hw.Run();
 	}

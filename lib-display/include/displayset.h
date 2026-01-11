@@ -28,14 +28,14 @@
 
 #include <cstdint>
 
-namespace display {
-namespace cursor {
+
+namespace display::cursor {
 static constexpr uint32_t OFF = 0;
 static constexpr uint32_t ON = (1U << 0);
 static constexpr uint32_t BLINK_OFF = 0;
 static constexpr uint32_t BLINK_ON = (1U << 1);
 }  // namespace cursor_mode
-}  // namespace display
+
 
 class DisplaySet {
 public:
@@ -66,9 +66,9 @@ public:
 	virtual void SetCursorPos(uint32_t nCol, uint32_t nRow)= 0;
 	virtual void SetCursor(uint32_t)= 0;
 
-	virtual void SetSleep(__attribute__((unused)) bool bSleep) {}
-	virtual void SetContrast(__attribute__((unused)) uint8_t nContrast) {}
-	virtual void SetFlipVertically(__attribute__((unused)) bool doFlipVertically) {}
+	virtual void SetSleep([[maybe_unused]] bool bSleep) {}
+	virtual void SetContrast([[maybe_unused]] uint8_t nContrast) {}
+	virtual void SetFlipVertically([[maybe_unused]] bool doFlipVertically) {}
 
 	virtual void PrintInfo() {}
 

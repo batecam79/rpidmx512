@@ -2,7 +2,7 @@
  * @file flashcodeinstallparams.cpp
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2024 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,11 +23,6 @@
  * THE SOFTWARE.
  */
 
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
-#endif
-
 #include <cstdint>
 #include <cstdio>
 #include <cassert>
@@ -45,7 +40,7 @@ bool FlashCodeInstallParams::Load() {
 
 	m_nSetList = 0;
 
-	ReadConfigFile configfile(FlashCodeInstallParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(FlashCodeInstallParams::StaticCallbackFunction, this);
 	const auto b = configfile.Read(FlashCodeInstallParamsConst::FILE_NAME);
 
 #ifndef NDEBUG
@@ -79,7 +74,7 @@ void FlashCodeInstallParams::callbackFunction(const char *pLine) {
 	}
 }
 
-void FlashCodeInstallParams::staticCallbackFunction(void *p, const char *s) {
+void FlashCodeInstallParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 

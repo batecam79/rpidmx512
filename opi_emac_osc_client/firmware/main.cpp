@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,11 +28,10 @@
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
 
 #include "display.h"
 
-#include "mdns.h"
+#include "net/apps/mdns.h"
 
 #include "oscclient.h"
 #include "oscclientparams.h"
@@ -54,31 +53,25 @@
 
 #include "displayhandler.h"
 
-void Hardware::RebootHandler() { }
-
-void main() {
+int main() {
 	Hardware hw;
 	Display display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
 	fw.Print("OSC Client");
-	nw.Print();
-
+	
 	OscClientParams params;
 	OscClient client;
 
 	params.Load();
 	params.Set(&client);
 
-	mDns.ServiceRecordAdd(nullptr, mdns::Services::OSC, "type=client", client.GetPortIncoming());
+	mdns_service_record_add(nullptr, mdns::Services::OSC, "type=client", client.GetPortIncoming());
 
-	display.TextStatus(OscClientMsgConst::PARAMS, Display7SegmentMessage::INFO_OSCCLIENT_PARMAMS, CONSOLE_YELLOW);
+	display.TextStatus(OscClientMsgConst::PARAMS, CONSOLE_YELLOW);
 
 	client.Print();
 
@@ -108,11 +101,6 @@ void main() {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
 	for (uint32_t i = 1; i < 7 ; i++) {
 		display.ClearLine(i);
 	}
@@ -124,11 +112,11 @@ void main() {
 	display.Printf(5, "O : %d", client.GetPortOutgoing());
 	display.Printf(6, "I : %d", client.GetPortIncoming());
 
-	display.TextStatus(OscClientMsgConst::START, Display7SegmentMessage::INFO_OSCCLIENT_START, CONSOLE_YELLOW);
+	display.TextStatus(OscClientMsgConst::START, CONSOLE_YELLOW);
 
 	client.Start();
 
-	display.TextStatus(OscClientMsgConst::STARTED, Display7SegmentMessage::INFO_OSCCLIENT_STARTED, CONSOLE_GREEN);
+	display.TextStatus(OscClientMsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.SetMode(hardware::ledblink::Mode::NORMAL);
 	hw.WatchdogInit();
@@ -138,9 +126,6 @@ void main() {
 		nw.Run();
 		client.Run();
 		pButtonsSet->Run();
-		remoteConfig.Run();
-		configStore.Flash();
-		mDns.Run();
 		display.Run();
 		hw.Run();
 	}

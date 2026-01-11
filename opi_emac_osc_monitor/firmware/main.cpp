@@ -2,7 +2,7 @@
  * @file main.cpp
  *
  */
-/* Copyright (C) 2019-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2019-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,15 +28,11 @@
 
 #include "hardware.h"
 #include "network.h"
-#include "networkconst.h"
-
 
 #include "console.h"
 #include "h3/showsystime.h"
 
-#include "ntpclient.h"
-
-#include "mdns.h"
+#include "net/apps/mdns.h"
 
 #include "display.h"
 #include "displayhandler.h"
@@ -56,18 +52,11 @@
 #include "remoteconfig.h"
 #include "remoteconfigparams.h"
 
-
-void Hardware::RebootHandler() {
-}
-
-void main() {
+int main() {
 	Hardware hw;
 	Display display;
 	ConfigStore configStore;
-	display.TextStatus(NetworkConst::MSG_NETWORK_INIT, Display7SegmentMessage::INFO_NETWORK_INIT, CONSOLE_YELLOW);
 	Network nw;
-	MDNS mDns;
-	display.TextStatus(NetworkConst::MSG_NETWORK_STARTED, Display7SegmentMessage::INFO_NONE, CONSOLE_GREEN);
 	FirmwareVersion fw(SOFTWARE_VERSION, __DATE__, __TIME__);
 	FlashCodeInstall spiFlashInstall;
 
@@ -81,11 +70,9 @@ void main() {
 	console_set_fg_color(CONSOLE_WHITE);
 	console_set_top_row(2);
 
-	nw.Print();
-	
 	ShowSystime showSystime;
 
-	display.TextStatus(OscServerMsgConst::PARAMS, Display7SegmentMessage::INFO_BRIDGE_PARMAMS, CONSOLE_YELLOW);
+	display.TextStatus(OscServerMsgConst::PARAMS, CONSOLE_YELLOW);
 
 	OSCServerParams params;
 	OscServer server;
@@ -93,11 +80,7 @@ void main() {
 	params.Load();
 	params.Set(&server);
 
-	mDns.ServiceRecordAdd(nullptr, mdns::Services::OSC, "type=monitor", server.GetPortIncoming());
-
-	NtpClient ntpClient;
-	ntpClient.Start();
-	ntpClient.Print();
+	mdns_service_record_add(nullptr, mdns::Services::OSC, "type=monitor", server.GetPortIncoming());
 
 	DMXMonitor monitor;
 	// There is support for HEX output only
@@ -122,28 +105,18 @@ void main() {
 	remoteConfigParams.Load();
 	remoteConfigParams.Set(&remoteConfig);
 
-	while (configStore.Flash())
-		;
-
-	mDns.Print();
-
-	display.TextStatus(OscServerMsgConst::START, Display7SegmentMessage::INFO_BRIDGE_START, CONSOLE_YELLOW);
+	display.TextStatus(OscServerMsgConst::START, CONSOLE_YELLOW);
 
 	server.Start();
 
-	display.TextStatus(OscServerMsgConst::STARTED, Display7SegmentMessage::INFO_BRIDGE_STARTED, CONSOLE_GREEN);
+	display.TextStatus(OscServerMsgConst::STARTED, CONSOLE_GREEN);
 
 	hw.WatchdogInit();
 
 	for (;;) {
 		hw.WatchdogFeed();
 		nw.Run();
-		server.Run();
-		remoteConfig.Run();
-		configStore.Flash();
-		ntpClient.Run();
 		showSystime.Run();
-		mDns.Run();
 		display.Run();
 		hw.Run();
 	}

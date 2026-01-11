@@ -2,7 +2,7 @@
  * @file networkparams.cpp
  *
  */
-/* Copyright (C) 2017-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2017-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,9 +23,8 @@
  * THE SOFTWARE.
  */
 
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
+#ifdef DEBUG_NETWORK
+# undef NDEBUG
 #endif
 
 #include <cstdint>
@@ -36,7 +35,6 @@
 #include "networkparams.h"
 #include "networkparamsconst.h"
 
-
 #include "readconfigfile.h"
 #include "sscan.h"
 
@@ -44,14 +42,11 @@
 
 #include "debug.h"
 
-using namespace networkparams;
-
 NetworkParams::NetworkParams() {
 	DEBUG_ENTRY
 
 	memset(&m_Params, 0, sizeof(struct networkparams::Params));
-	m_Params.bIsDhcpUsed = defaults::IS_DHCP_USED;
-	m_Params.nDhcpRetryTime = defaults::DHCP_RETRY_TIME;
+	m_Params.bIsDhcpUsed = networkparams::defaults::IS_DHCP_USED;
 
 	DEBUG_EXIT
 }
@@ -61,13 +56,13 @@ void NetworkParams::Load() {
 	m_Params.nSetList = 0;
 
 #if !defined(DISABLE_FS)
-	ReadConfigFile configfile(NetworkParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(NetworkParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(NetworkParamsConst::FILE_NAME)) {
-		NetworkParamsStore::Update(&m_Params);
+		networkparams::store::update(&m_Params);
 	} else
 #endif
-		NetworkParamsStore::Copy(&m_Params);
+		networkparams::store::copy(&m_Params);
 
 #ifndef NDEBUG
 	Dump();
@@ -83,11 +78,11 @@ void NetworkParams::Load(const char *pBuffer, uint32_t nLength) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(NetworkParams::staticCallbackFunction, this);
+	ReadConfigFile config(NetworkParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
-	NetworkParamsStore::Update(&m_Params);
+	networkparams::store::update(&m_Params);
 
 #ifndef NDEBUG
 	Dump();
@@ -95,7 +90,7 @@ void NetworkParams::Load(const char *pBuffer, uint32_t nLength) {
 	DEBUG_EXIT
 }
 
-void NetworkParams::callbackFunction(const char *pLine) {
+void NetworkParams::CallbackFunction(const char *pLine) {
 	assert(pLine != nullptr);
 
 	uint8_t nValue8;
@@ -110,20 +105,10 @@ void NetworkParams::callbackFunction(const char *pLine) {
 		return;
 	}
 
-	if (Sscan::Uint8(pLine, NetworkParamsConst::DHCP_RETRY_TIME, nValue8) == Sscan::OK) {
-		if ((nValue8 != defaults::DHCP_RETRY_TIME) && (nValue8 <= 5)) {
-			m_Params.nSetList |= networkparams::Mask::DHCP_RETRY_TIME;
-			m_Params.nDhcpRetryTime = nValue8;
-		} else {
-			m_Params.nSetList &= ~networkparams::Mask::DHCP_RETRY_TIME;
-			m_Params.nDhcpRetryTime = defaults::DHCP_RETRY_TIME;
-		}
-	}
-
 	uint32_t nValue32;
 
 	if (Sscan::IpAddress(pLine, NetworkParamsConst::IP_ADDRESS, nValue32) == Sscan::OK) {
-		if ((network::is_private_ip(nValue32)) || ((nValue32 & 0xFF) == 2U) || (nValue32 == 0)) {
+		if ((net::is_private_ip(nValue32)) || ((nValue32 & 0xFF) == 2U) || (nValue32 == 0)) {
 			m_Params.nLocalIp = nValue32;
 			m_Params.nSetList |= networkparams::Mask::IP_ADDRESS;
 		} else {
@@ -133,7 +118,7 @@ void NetworkParams::callbackFunction(const char *pLine) {
 	}
 
 	if (Sscan::IpAddress(pLine, NetworkParamsConst::NET_MASK, nValue32) == Sscan::OK) {
-		if (network::is_netmask_valid(nValue32)) {
+		if (net::is_netmask_valid(nValue32)) {
 			m_Params.nNetmask = nValue32;
 			m_Params.nSetList |= networkparams::Mask::NET_MASK;
 		} else {
@@ -143,12 +128,17 @@ void NetworkParams::callbackFunction(const char *pLine) {
 	}
 
 	if (Sscan::IpAddress(pLine, NetworkParamsConst::DEFAULT_GATEWAY, nValue32) == Sscan::OK) {
-		m_Params.nGatewayIp = nValue32;
-		m_Params.nSetList |= networkparams::Mask::DEFAULT_GATEWAY;
+		if (nValue32 != 0) {
+			m_Params.nSetList |= networkparams::Mask::DEFAULT_GATEWAY;
+			m_Params.nGatewayIp = nValue32;
+		} else {
+			m_Params.nSetList &= ~networkparams::Mask::DEFAULT_GATEWAY;
+		}
+
 		return;
 	}
 
-	uint32_t nLength = network::HOSTNAME_SIZE - 1;
+	uint32_t nLength = net::HOSTNAME_SIZE - 1;
 
 	if (Sscan::Char(pLine, NetworkParamsConst::HOSTNAME, m_Params.aHostName, nLength) == Sscan::OK) {
 		m_Params.aHostName[nLength] = '\0';
@@ -156,8 +146,6 @@ void NetworkParams::callbackFunction(const char *pLine) {
 		return;
 	}
 
-
-#if !defined(DISABLE_RTC)
 	if (Sscan::IpAddress(pLine, NetworkParamsConst::NTP_SERVER, nValue32) == Sscan::OK) {
 		if (nValue32 != 0) {
 			m_Params.nSetList |= networkparams::Mask::NTP_SERVER;
@@ -167,21 +155,6 @@ void NetworkParams::callbackFunction(const char *pLine) {
 		m_Params.nNtpServerIp = nValue32;
 		return;
 	}
-
-	float fValue;
-
-	if (Sscan::Float(pLine, NetworkParamsConst::NTP_UTC_OFFSET, fValue) == Sscan::OK) {
-		// https://en.wikipedia.org/wiki/List_of_UTC_time_offsets
-		if ((static_cast<int32_t>(fValue) >= -12) && (static_cast<int32_t>(fValue) <= 14) && (static_cast<int32_t>(fValue) != 0)) {
-			m_Params.fNtpUtcOffset = fValue;
-			m_Params.nSetList |= networkparams::Mask::NTP_UTC_OFFSET;
-		} else {
-			m_Params.fNtpUtcOffset = 0;
-			m_Params.nSetList &= ~networkparams::Mask::NTP_UTC_OFFSET;
-		}
-		return;
-	}
-#endif
 
 #if defined (ESP8266)
 	if (Sscan::IpAddress(pLine,  NetworkParamsConst::NAME_SERVER, nValue32) == Sscan::OK) {
@@ -206,61 +179,59 @@ void NetworkParams::callbackFunction(const char *pLine) {
 #endif
 }
 
-void NetworkParams::staticCallbackFunction(void *p, const char *s) {
+void NetworkParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 
-	(static_cast<NetworkParams*>(p))->callbackFunction(s);
+	(static_cast<NetworkParams*>(p))->CallbackFunction(s);
 }
 
-void NetworkParams::Builder(const struct networkparams::Params *ptNetworkParams, char *pBuffer, uint32_t nLength, uint32_t& nSize) {
+void NetworkParams::Builder(const struct networkparams::Params *pParams, char *pBuffer, uint32_t nLength, uint32_t& nSize) {
 	DEBUG_ENTRY
 
 	assert(pBuffer != nullptr);
 
-	if (ptNetworkParams != nullptr) {
-		memcpy(&m_Params, ptNetworkParams, sizeof(struct networkparams::Params));
+	if (pParams != nullptr) {
+		memcpy(&m_Params, pParams, sizeof(struct networkparams::Params));
 	} else {
-		NetworkParamsStore::Copy(&m_Params);
+		networkparams::store::copy(&m_Params);
 	}
 
 	PropertiesBuilder builder(NetworkParamsConst::FILE_NAME, pBuffer, nLength);
+
+	// Fixed
 	builder.AddIpAddress("secondary_ip", Network::Get()->GetSecondaryIp(), false);
 
-	if (!isMaskSet(networkparams::Mask::IP_ADDRESS)) {
+	if (!IsMaskSet(networkparams::Mask::IP_ADDRESS)) {
 		m_Params.nLocalIp = Network::Get()->GetIp();
 	}
 
-	if (!isMaskSet(networkparams::Mask::NET_MASK)) {
+	if (!IsMaskSet(networkparams::Mask::NET_MASK)) {
 		m_Params.nNetmask = Network::Get()->GetNetmask();
 	}
 
-	if (!isMaskSet(networkparams::Mask::DEFAULT_GATEWAY)) {
+	if (!IsMaskSet(networkparams::Mask::DEFAULT_GATEWAY)) {
 		m_Params.nGatewayIp = Network::Get()->GetGatewayIp();
 	}
 
-	if (!isMaskSet(networkparams::Mask::HOSTNAME)) {
-		strncpy(m_Params.aHostName, Network::Get()->GetHostName(), network::HOSTNAME_SIZE - 1);
-		m_Params.aHostName[network::HOSTNAME_SIZE - 1] = '\0';
+	if (!IsMaskSet(networkparams::Mask::HOSTNAME)) {
+		strncpy(m_Params.aHostName, Network::Get()->GetHostName(), net::HOSTNAME_SIZE - 1);
+		m_Params.aHostName[net::HOSTNAME_SIZE - 1] = '\0';
 	}
 
-	builder.Add(NetworkParamsConst::USE_DHCP, m_Params.bIsDhcpUsed, isMaskSet(networkparams::Mask::DHCP));
-	builder.Add(NetworkParamsConst::DHCP_RETRY_TIME, m_Params.nDhcpRetryTime, isMaskSet(networkparams::Mask::DHCP_RETRY_TIME));
+	builder.Add(NetworkParamsConst::USE_DHCP, m_Params.bIsDhcpUsed, IsMaskSet(networkparams::Mask::DHCP));
 
 	builder.AddComment("Static IP");
-	builder.AddIpAddress(NetworkParamsConst::IP_ADDRESS, m_Params.nLocalIp, isMaskSet(networkparams::Mask::IP_ADDRESS));
-	builder.AddIpAddress(NetworkParamsConst::NET_MASK, m_Params.nNetmask, isMaskSet(networkparams::Mask::NET_MASK));
-	builder.AddIpAddress(NetworkParamsConst::DEFAULT_GATEWAY, m_Params.nGatewayIp, isMaskSet(networkparams::Mask::DEFAULT_GATEWAY));
+	builder.AddIpAddress(NetworkParamsConst::IP_ADDRESS, m_Params.nLocalIp, IsMaskSet(networkparams::Mask::IP_ADDRESS));
+	builder.AddIpAddress(NetworkParamsConst::NET_MASK, m_Params.nNetmask, IsMaskSet(networkparams::Mask::NET_MASK));
+	builder.AddIpAddress(NetworkParamsConst::DEFAULT_GATEWAY, m_Params.nGatewayIp, IsMaskSet(networkparams::Mask::DEFAULT_GATEWAY));
 #if defined(ESP8266)
-	builder.AddIpAddress(NetworkParamsConst::NAME_SERVER, m_Params.nNameServerIp, isMaskSet(networkparams::Mask::NAME_SERVER));
+	builder.AddIpAddress(NetworkParamsConst::NAME_SERVER, m_Params.nNameServerIp, IsMaskSet(networkparams::Mask::NAME_SERVER));
 #endif
-	builder.Add(NetworkParamsConst::HOSTNAME, m_Params.aHostName, isMaskSet(networkparams::Mask::HOSTNAME));
+	builder.Add(NetworkParamsConst::HOSTNAME, m_Params.aHostName, IsMaskSet(networkparams::Mask::HOSTNAME));
 
-#if !defined(DISABLE_RTC)
 	builder.AddComment("NTP Server");
-	builder.AddIpAddress(NetworkParamsConst::NTP_SERVER, m_Params.nNtpServerIp, isMaskSet(networkparams::Mask::NTP_SERVER));
-	builder.Add(NetworkParamsConst::NTP_UTC_OFFSET, m_Params.fNtpUtcOffset, isMaskSet(networkparams::Mask::NTP_UTC_OFFSET));
-#endif
+	builder.AddIpAddress(NetworkParamsConst::NTP_SERVER, m_Params.nNtpServerIp, IsMaskSet(networkparams::Mask::NTP_SERVER));
 
 	nSize = builder.GetSize();
 
@@ -271,18 +242,15 @@ void NetworkParams::Builder(const struct networkparams::Params *ptNetworkParams,
 void NetworkParams::Dump() {
 	printf("%s::%s \'%s\':\n", __FILE__, __FUNCTION__, NetworkParamsConst::FILE_NAME);
 
-	debug_print_bits(m_Params.nSetList);
-
 	printf(" %s=%d [%s]\n", NetworkParamsConst::USE_DHCP, static_cast<int>(m_Params.bIsDhcpUsed), m_Params.bIsDhcpUsed != 0 ? "Yes" : "No");
 	printf(" %s=" IPSTR "\n", NetworkParamsConst::IP_ADDRESS, IP2STR(m_Params.nLocalIp));
 	printf(" %s=" IPSTR "\n", NetworkParamsConst::NET_MASK, IP2STR(m_Params.nNetmask));
+	printf(" %s=" IPSTR "\n", NetworkParamsConst::DEFAULT_GATEWAY, IP2STR(m_Params.nGatewayIp));
 
 #if defined (ESP8266)
-	printf(" %s=" IPSTR "\n", NetworkParamsConst::DEFAULT_GATEWAY, IP2STR(m_Params.nGatewayIp));
 	printf(" %s=" IPSTR "\n",  NetworkParamsConst::NAME_SERVER, IP2STR(m_Params.nNameServerIp));
 #endif
 
 	printf(" %s=%s\n", NetworkParamsConst::HOSTNAME, m_Params.aHostName);
 	printf(" %s=" IPSTR "\n", NetworkParamsConst::NTP_SERVER, IP2STR(m_Params.nNtpServerIp));
-	printf(" %s=%1.1f\n", NetworkParamsConst::NTP_UTC_OFFSET, m_Params.fNtpUtcOffset);
 }

@@ -2,7 +2,7 @@
  * @file dmxserialparams.cpp
  *
  */
-/* Copyright (C) 2020-2021 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2020-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,11 +22,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
-#if !defined(__clang__)	// Needed for compiling on MacOS
-# pragma GCC push_options
-# pragma GCC optimize ("Os")
-#endif
 
 #include <cstdint>
 #include <cstring>
@@ -73,7 +68,7 @@ void DmxSerialParams::Load() {
 	m_Params.nSetList = 0;
 
 #if !defined(DISABLE_FS)
-	ReadConfigFile configfile(DmxSerialParams::staticCallbackFunction, this);
+	ReadConfigFile configfile(DmxSerialParams::StaticCallbackFunction, this);
 
 	if (configfile.Read(DmxSerialParamsConst::FILE_NAME)) {
 		DmxSerialStore::Update(&m_Params);
@@ -95,7 +90,7 @@ void DmxSerialParams::Load(const char *pBuffer, uint32_t nLength) {
 
 	m_Params.nSetList = 0;
 
-	ReadConfigFile config(DmxSerialParams::staticCallbackFunction, this);
+	ReadConfigFile config(DmxSerialParams::StaticCallbackFunction, this);
 
 	config.Read(pBuffer, nLength);
 
@@ -302,7 +297,7 @@ void DmxSerialParams::Set() {
 	}
 }
 
-void DmxSerialParams::staticCallbackFunction(void *p, const char *s) {
+void DmxSerialParams::StaticCallbackFunction(void *p, const char *s) {
 	assert(p != nullptr);
 	assert(s != nullptr);
 

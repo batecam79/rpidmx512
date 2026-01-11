@@ -2,10 +2,7 @@
  * @file artnetnodehandleaddress.cpp
  *
  */
-/**
- * Art-Net Designed by and Copyright Artistic Licence Holdings Ltd.
- */
-/* Copyright (C) 2021-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2021-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -36,6 +33,7 @@
 #include "artnetstore.h"
 
 #include "lightsetdata.h"
+#include "lightset_data.h"
 #include "hardware.h"
 
 #include "debug.h"
@@ -64,13 +62,13 @@ void ArtNetNode::SetLocalMerging() {
 					m_Node.Port[nOutputPortIndex].PortAddress);
 
 			if ((m_Node.Port[nInputPortIndex].protocol == m_Node.Port[nOutputPortIndex].protocol) &&
-				(m_Node.Port[nInputPortIndex].PortAddress == m_Node.Port[nOutputPortIndex].PortAddress)) {
+					(m_Node.Port[nInputPortIndex].PortAddress == m_Node.Port[nOutputPortIndex].PortAddress)) {
 
 				if (!m_Node.Port[nOutputPortIndex].bLocalMerge) {
-					m_OutputPort[nOutputPortIndex].SourceA.nIp = Network::Get()->GetIp();
+					m_OutputPort[nOutputPortIndex].SourceA.nIp = net::IPADDR_LOOPBACK;
 					DEBUG_PUTS("Local merge Source A");
 				} else {
-					m_OutputPort[nOutputPortIndex].SourceB.nIp = Network::Get()->GetIp();
+					m_OutputPort[nOutputPortIndex].SourceB.nIp = net::IPADDR_LOOPBACK;
 					DEBUG_PUTS("Local merge Source B");
 				}
 
@@ -85,10 +83,6 @@ void ArtNetNode::SetLocalMerging() {
 	}
 
 	DEBUG_EXIT
-}
-
-uint16_t ArtNetNode::MakePortAddress(const uint16_t nUniverse, const uint32_t nPage) {
-	return artnet::make_port_address(m_Node.Port[nPage].NetSwitch, m_Node.Port[nPage].SubSwitch, nUniverse);
 }
 
 void ArtNetNode::SetUniverse(const uint32_t nPortIndex, const lightset::PortDir dir, const uint16_t nUniverse) {
@@ -163,7 +157,7 @@ void ArtNetNode::SetUniverseSwitch(const uint32_t nPortIndex, const lightset::Po
 	SetUniverse4(nPortIndex, dir);
 #endif
 
-	if (m_State.status == artnetnode::Status::ON) {
+	if (m_State.status == artnet::Status::ON) {
 		ArtNetStore::SaveUniverseSwitch(nPortIndex, nAddress);
 		artnet::display_universe_switch(nPortIndex, nAddress);
 
@@ -182,7 +176,7 @@ void ArtNetNode::SetSubnetSwitch(const uint32_t nPortIndex, const uint8_t nSubne
 	m_Node.Port[nPortIndex].SubSwitch = nSubnetSwitch;
 	m_Node.Port[nPortIndex].PortAddress = MakePortAddress(m_Node.Port[nPortIndex].PortAddress, nPortIndex);
 
-	if (m_State.status == artnetnode::Status::ON) {
+	if (m_State.status == artnet::Status::ON) {
 		ArtNetStore::SaveSubnetSwitch(nPortIndex, nSubnetSwitch);
 	}
 
@@ -196,7 +190,7 @@ void ArtNetNode::SetNetSwitch(const uint32_t nPortIndex, const uint8_t nNetSwitc
 	m_Node.Port[nPortIndex].NetSwitch = nNetSwitch;
 	m_Node.Port[nPortIndex].PortAddress = MakePortAddress(m_Node.Port[nPortIndex].PortAddress, nPortIndex);
 
-	if (m_State.status == artnetnode::Status::ON) {
+	if (m_State.status == artnet::Status::ON) {
 		ArtNetStore::SaveNetSwitch(nPortIndex, nNetSwitch);
 	}
 
@@ -216,17 +210,45 @@ void ArtNetNode::SetMergeMode(const uint32_t nPortIndex, const lightset::MergeMo
 	E131Bridge::SetMergeMode(nPortIndex, mergeMode);
 #endif
 
-	if (m_State.status == artnetnode::Status::ON) {
+	if (m_State.status == artnet::Status::ON) {
 		ArtNetStore::SaveMergeMode(nPortIndex, mergeMode);
 		artnet::display_merge_mode(nPortIndex, mergeMode);
 	}
+}
+
+void ArtNetNode::SetFailSafe(const lightset::FailSafe lightset_failsafe) {
+	artnetnode::FailSafe failsafe;
+
+	switch (lightset_failsafe) {
+	case lightset::FailSafe::HOLD:
+		failsafe = artnetnode::FailSafe::LAST;
+		break;
+	case lightset::FailSafe::OFF:
+		failsafe = artnetnode::FailSafe::OFF;
+		break;
+	case lightset::FailSafe::ON:
+		failsafe = artnetnode::FailSafe::ON;
+		break;
+	case lightset::FailSafe::PLAYBACK:
+		failsafe = artnetnode::FailSafe::PLAYBACK;
+		break;
+	case lightset::FailSafe::RECORD:
+		failsafe = artnetnode::FailSafe::RECORD;
+		break;
+	default:
+		assert(0);
+		__builtin_unreachable();
+		break;
+	}
+
+	SetFailSafe(failsafe);
 }
 
 void ArtNetNode::SetFailSafe(const artnetnode::FailSafe failsafe) {
 	DEBUG_PRINTF("failsafe=%u", static_cast<uint32_t>(failsafe));
 
 #if defined(ARTNET_HAVE_FAILSAFE_RECORD)
-	if ((m_State.status == artnetnode::Status::ON) && (failsafe == artnetnode::FailSafe::RECORD)) {
+	if ((m_State.status == artnet::Status::ON) && (failsafe == artnetnode::FailSafe::RECORD)) {
 		FailSafeRecord();
 		return;
 	}
@@ -270,7 +292,7 @@ void ArtNetNode::SetFailSafe(const artnetnode::FailSafe failsafe) {
 	E131Bridge::SetFailSafe(static_cast<lightset::FailSafe>(static_cast<uint8_t>(failsafe) & 0x3));
 #endif
 
-	if (m_State.status == artnetnode::Status::ON) {
+	if (m_State.status == artnet::Status::ON) {
 		const auto nFailSafe = static_cast<uint8_t>(static_cast<uint8_t>(failsafe) & 0x3);
 		ArtNetStore::SaveFailSafe(nFailSafe);
 		artnet::display_failsafe(nFailSafe);
@@ -279,9 +301,34 @@ void ArtNetNode::SetFailSafe(const artnetnode::FailSafe failsafe) {
 	DEBUG_EXIT
 }
 
+lightset::FailSafe ArtNetNode::GetFailSafe() {
+	const auto networkloss = (m_ArtPollReply.Status3 & artnet::Status3::NETWORKLOSS_MASK);
+	switch (networkloss) {
+	case artnet::Status3::NETWORKLOSS_LAST_STATE:
+		return lightset::FailSafe::HOLD;
+		break;
+	case artnet::Status3::NETWORKLOSS_OFF_STATE:
+		return lightset::FailSafe::OFF;
+		break;
+	case artnet::Status3::NETWORKLOSS_ON_STATE:
+		return lightset::FailSafe::ON;
+		break;
+	case artnet::Status3::NETWORKLOSS_PLAYBACK:
+		return lightset::FailSafe::PLAYBACK;
+		break;
+	default:
+		assert(0);
+		__builtin_unreachable();
+		break;
+	}
+
+	__builtin_unreachable();
+	return lightset::FailSafe::OFF;
+}
+
 void ArtNetNode::HandleAddress() {
 	const auto *const pArtAddress = reinterpret_cast<artnet::ArtAddress *>(m_pReceiveBuffer);
-	m_State.reportCode = artnetnode::ReportCode::RCPOWEROK;
+	m_State.reportCode = artnet::ReportCode::RCPOWEROK;
 
 	const auto nPage = static_cast<uint32_t>(pArtAddress->BindIndex > 0 ? pArtAddress->BindIndex - 1 : 0);
 
@@ -289,12 +336,12 @@ void ArtNetNode::HandleAddress() {
 
 	if (pArtAddress->ShortName[0] != 0)  {
 		SetShortName(nPage, reinterpret_cast<const char*>(pArtAddress->ShortName));
-		m_State.reportCode = artnetnode::ReportCode::RCSHNAMEOK;
+		m_State.reportCode = artnet::ReportCode::RCSHNAMEOK;
 	}
 
 	if (pArtAddress->LongName[0] != 0) {
 		SetLongName(reinterpret_cast<const char*>(pArtAddress->LongName));
-		m_State.reportCode = artnetnode::ReportCode::RCLONAMEOK;
+		m_State.reportCode = artnet::ReportCode::RCLONAMEOK;
 	}
 
 	if (pArtAddress->SubSwitch == artnet::Program::DEFAULTS) {
@@ -387,9 +434,11 @@ void ArtNetNode::HandleAddress() {
 		break;
 
 	case artnet::PortCommand::MERGE_LTP_O:
+#if (ARTNET_VERSION < 4)
 	case artnet::PortCommand::MERGE_LTP_1:
 	case artnet::PortCommand::MERGE_LTP_2:
 	case artnet::PortCommand::MERGE_LTP_3:
+#endif
 		SetMergeMode(nPage, lightset::MergeMode::LTP);
 #if (ARTNET_VERSION >= 4)
 		E131Bridge::SetMergeMode(nPage, lightset::MergeMode::LTP);
@@ -398,23 +447,29 @@ void ArtNetNode::HandleAddress() {
 
 #if defined (ARTNET_HAVE_DMXIN)
 	case artnet::PortCommand::DIRECTION_TX_O:
+#if (ARTNET_VERSION < 4)
 	case artnet::PortCommand::DIRECTION_TX_1:
 	case artnet::PortCommand::DIRECTION_TX_2:
 	case artnet::PortCommand::DIRECTION_TX_3:
+#endif
 		DEBUG_PUTS("ToDo: PortCommand::DIRECTION_TX");
 		break;
 
 	case artnet::PortCommand::DIRECTION_RX_O:
+#if (ARTNET_VERSION < 4)
 	case artnet::PortCommand::DIRECTION_RX_1:
 	case artnet::PortCommand::DIRECTION_RX_2:
 	case artnet::PortCommand::DIRECTION_RX_3:
+#endif
 		DEBUG_PUTS("ToDo: PortCommand::DIRECTION_RX");
 		break;
 #endif
 	case artnet::PortCommand::MERGE_HTP_0:
+#if (ARTNET_VERSION < 4)
 	case artnet::PortCommand::MERGE_HTP_1:
 	case artnet::PortCommand::MERGE_HTP_2:
 	case artnet::PortCommand::MERGE_HTP_3:
+#endif
 		SetMergeMode(nPage, lightset::MergeMode::HTP);
 #if (ARTNET_VERSION >= 4)
 		E131Bridge::SetMergeMode(nPage, lightset::MergeMode::HTP);
@@ -423,28 +478,35 @@ void ArtNetNode::HandleAddress() {
 
 #if (ARTNET_VERSION >= 4)
 	case artnet::PortCommand::ARTNET_SEL0:
+#if 0	// Deprecated in Art-Net 4
 	case artnet::PortCommand::ARTNET_SEL1:
 	case artnet::PortCommand::ARTNET_SEL2:
 	case artnet::PortCommand::ARTNET_SEL3:
+#endif
 		SetPortProtocol4(nPage, artnet::PortProtocol::ARTNET);
 		SetUniverse4(nPage, lightset::PortDir::DISABLE);
 		break;
 
 	case artnet::PortCommand::ACN_SEL0:
+#if 0	// Deprecated in Art-Net 4
 	case artnet::PortCommand::ACN_SEL1:
 	case artnet::PortCommand::ACN_SEL2:
 	case artnet::PortCommand::ACN_SEL3:
+#endif
 		SetPortProtocol4(nPage, artnet::PortProtocol::SACN);
 		SetUniverse4(nPage, lightset::PortDir::OUTPUT);
 		break;
 #endif
 
 	case artnet::PortCommand::CLR_0:
+#if 0	// Deprecated in Art-Net 4
 	case artnet::PortCommand::CLR_1:
 	case artnet::PortCommand::CLR_2:
 	case artnet::PortCommand::CLR_3:
+#endif
 		if (m_Node.Port[nPage].protocol == artnet::PortProtocol::ARTNET) {
-			lightset::Data::OutputClear(m_pLightSet, nPage);
+			lightset::Data::Clear(nPage);
+			lightset::data_output(m_pLightSet, nPage);
 		}
 #if (ARTNET_VERSION >= 4)
 		if (m_Node.Port[nPage].protocol == artnet::PortProtocol::SACN) {
@@ -455,32 +517,40 @@ void ArtNetNode::HandleAddress() {
 
 #if defined (OUTPUT_HAVE_STYLESWITCH)
 	case artnet::PortCommand::STYLE_DELTA0:
+#if 0	// Deprecated in Art-Net 4
 	case artnet::PortCommand::STYLE_DELTA1:
 	case artnet::PortCommand::STYLE_DELTA2:
 	case artnet::PortCommand::STYLE_DELTA3:
+#endif
 		SetOutputStyle(nPage, lightset::OutputStyle::DELTA);
 		break;
 
 	case artnet::PortCommand::STYLE_CONSTANT0:
+#if 0	// Deprecated in Art-Net 4
 	case artnet::PortCommand::STYLE_CONSTANT1:
 	case artnet::PortCommand::STYLE_CONSTANT2:
 	case artnet::PortCommand::STYLE_CONSTANT3:
+#endif
 		SetOutputStyle(nPage, lightset::OutputStyle::CONSTANT);
 		break;
 #endif
 
 #if defined (RDM_CONTROLLER) || defined (RDM_RESPONDER)
 	case artnet::PortCommand::RDM_ENABLE0:
+#if 0	// Deprecated in Art-Net 4
 	case artnet::PortCommand::RDM_ENABLE1:
 	case artnet::PortCommand::RDM_ENABLE2:
 	case artnet::PortCommand::RDM_ENABLE3:
+#endif
 		SetRdm(nPage, true);
 		break;
 
 	case artnet::PortCommand::RDM_DISABLE0:
+#if 0	// Deprecated in Art-Net 4
 	case artnet::PortCommand::RDM_DISABLE1:
 	case artnet::PortCommand::RDM_DISABLE2:
 	case artnet::PortCommand::RDM_DISABLE3:
+#endif
 		SetRdm(nPage, false);
 		break;
 #endif
@@ -489,5 +559,5 @@ void ArtNetNode::HandleAddress() {
 		break;
 	}
 
-	SendPollRelply(pArtAddress->BindIndex, m_nIpAddressFrom);
+	SendPollReply(pArtAddress->BindIndex, m_nIpAddressFrom);
 }

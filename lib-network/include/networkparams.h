@@ -2,7 +2,7 @@
  * @file networkparams.h
  *
  */
-/* Copyright (C) 2017-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2017-2025 by Arjan van Vught mailto:info@gd32-dmx.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,13 +28,13 @@
 
 #include <cstdint>
 
+#include "net/ip4_address.h"
 #include "network.h"
 #include "configstore.h"
 
 namespace networkparams {
 namespace defaults {
 static constexpr auto IS_DHCP_USED = true;
-static constexpr auto DHCP_RETRY_TIME = 0;
 }  // namespace defaults
 
 struct Params {
@@ -44,10 +44,10 @@ struct Params {
 	uint32_t nGatewayIp;
 	uint32_t nNameServerIp;
 	bool bIsDhcpUsed;
-	char aHostName[network::HOSTNAME_SIZE];
+	char aHostName[net::HOSTNAME_SIZE];
 	uint32_t nNtpServerIp;
 	float fNtpUtcOffset;
-	uint8_t nDhcpRetryTime;
+	uint8_t nNotUsed;
 #if defined (ESP8266)
 	char aSsid[34];
 	char aPassword[34];
@@ -55,7 +55,7 @@ struct Params {
 }__attribute__((packed));
 
 #if !defined (ESP8266)
- static_assert(sizeof(struct Params) <= network::STORE, "struct Params is too large");
+ static_assert(sizeof(struct Params) <= configstore::STORE_SIZE[static_cast<uint32_t>(configstore::Store::NETWORK)], "struct Params is too large");
 #endif
 
 struct Mask {
@@ -67,7 +67,6 @@ struct Mask {
 	static constexpr auto HOSTNAME = (1U << 5);
 	static constexpr auto NTP_SERVER = (1U << 6);
 	static constexpr auto NTP_UTC_OFFSET = (1U << 7);
-	static constexpr auto DHCP_RETRY_TIME = (1U << 8);
 	static constexpr auto PTP_ENABLE = (1U << 9);
 	static constexpr auto PTP_DOMAIN = (1U << 10);
 #if defined (ESP8266)
@@ -76,18 +75,16 @@ struct Mask {
 #endif
 };
 
+namespace store {
+inline void update(const struct networkparams::Params *pParams) {
+	ConfigStore::Get()->Update(configstore::Store::NETWORK, pParams, sizeof(struct networkparams::Params));
+}
+
+inline void copy(struct networkparams::Params *pParams) {
+	ConfigStore::Get()->Copy(configstore::Store::NETWORK, pParams, sizeof(struct networkparams::Params));
+}
+}  // namespace store
 }  // namespace networkparams
-
-class NetworkParamsStore {
-public:
-	static void Update(const struct networkparams::Params *pParams) {
-		ConfigStore::Get()->Update(configstore::Store::NETWORK, pParams, sizeof(struct networkparams::Params));
-	}
-
-	static void Copy(struct networkparams::Params *pParams) {
-		ConfigStore::Get()->Copy(configstore::Store::NETWORK, pParams, sizeof(struct networkparams::Params));
-	}
-};
 
 class NetworkParams {
 public:
@@ -103,10 +100,6 @@ public:
 
 	bool isDhcpUsed() const {
 		return m_Params.bIsDhcpUsed;
-	}
-
-	uint8_t GetDhcpRetryTime() const {
-		return m_Params.nDhcpRetryTime;
 	}
 
 	uint32_t GetIpAddress() const {
@@ -126,14 +119,14 @@ public:
 	}
 
 	uint32_t GetNtpServer() const {
-		if (!isMaskSet(networkparams::Mask::NTP_SERVER)) {
+		if (!IsMaskSet(networkparams::Mask::NTP_SERVER)) {
 			return 0;
 		}
 		return m_Params.nNtpServerIp;
 	}
 
 	float GetNtpUtcOffset() const {
-		if (!isMaskSet(networkparams::Mask::NTP_UTC_OFFSET)) {
+		if (!IsMaskSet(networkparams::Mask::NTP_UTC_OFFSET)) {
 			return 0;
 		}
 		return m_Params.fNtpUtcOffset;
@@ -154,12 +147,12 @@ public:
 #endif
 
 public:
-    static void staticCallbackFunction(void *p, const char *s);
+    static void StaticCallbackFunction(void *p, const char *s);
 
 private:
 	void Dump();
-    void callbackFunction(const char *s);
-    bool isMaskSet(uint32_t nMask) const {
+    void CallbackFunction(const char *s);
+    bool IsMaskSet(uint32_t nMask) const {
     	return (m_Params.nSetList & nMask) == nMask;
     }
 

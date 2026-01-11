@@ -2,7 +2,7 @@
  * @file network.cpp
  *
  */
-/* Copyright (C) 2018-2023 by Arjan van Vught mailto:info@orangepi-dmx.nl
+/* Copyright (C) 2018-2024 by Arjan van Vught mailto:info@orangepi-dmx.nl
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -54,7 +54,7 @@ static char firmware_version[FIRMWARE_VERSION_MAX + 1] __attribute__((aligned(4)
 
 void mac_address_get(uint8_t paddr[]);
 
-Network *Network::s_pThis = nullptr;
+static net::UdpCallbackFunctionPtr s_callback;
 
 Network::Network() {
 	assert(s_pThis == nullptr);
@@ -78,7 +78,9 @@ void Network::Init() {
 	m_IsInitDone = true;
 }
 
-int32_t Network::Begin(uint16_t nPort) {
+int32_t Network::Begin(uint16_t nPort, net::UdpCallbackFunctionPtr callback) {
+	s_callback = callback;
+
 	esp8266_write_4bits(CMD_WIFI_UDP_BEGIN);
 
 	esp8266_write_halfword(nPort);
@@ -86,7 +88,7 @@ int32_t Network::Begin(uint16_t nPort) {
 	return 0;
 }
 
-int32_t Network::End(__attribute__((unused)) uint16_t nPort) {
+int32_t Network::End([[maybe_unused]] uint16_t nPort) {
 	return 0;
 }
 
@@ -94,26 +96,26 @@ void Network::MacAddressCopyTo(uint8_t* pMacAddress) {
 	assert(pMacAddress != 0);
 
 	if (m_IsInitDone) {
-		memcpy(pMacAddress, m_aNetMacaddr , network::MAC_SIZE);
+		memcpy(pMacAddress, m_aNetMacaddr , net::MAC_SIZE);
 	} else {
 		mac_address_get(pMacAddress);
 	}
 }
 
-void Network::JoinGroup(__attribute__((unused)) int32_t nHandle, uint32_t nIp) {
+void Network::JoinGroup([[maybe_unused]] int32_t nHandle, uint32_t nIp) {
 	esp8266_write_4bits(CMD_WIFI_UDP_JOIN_GROUP);
 
 	esp8266_write_word(nIp);
 }
 
-uint16_t Network::RecvFrom(__attribute__((unused)) int32_t nHandle, void *pBuffer, uint16_t nLength, uint32_t *from_ip, uint16_t* from_port) {
+uint32_t Network::RecvFrom([[maybe_unused]] int32_t nHandle, void *pBuffer, uint32_t nLength, uint32_t *from_ip, uint16_t* from_port) {
 	assert(pBuffer != nullptr);
 	assert(from_ip != nullptr);
 	assert(from_port != nullptr);
 
 	esp8266_write_4bits(CMD_WIFI_UDP_RECEIVE);
 
-	auto nBytesReceived = esp8266_read_halfword();
+	uint32_t nBytesReceived = esp8266_read_halfword();
 
 	if (nBytesReceived != 0) {
 		*from_ip = esp8266_read_word();
@@ -131,12 +133,23 @@ uint16_t Network::RecvFrom(__attribute__((unused)) int32_t nHandle, void *pBuffe
 
 static uint8_t s_ReadBuffer[MAX_SEGMENT_LENGTH];
 
-uint16_t  Network::RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort) {
+uint32_t  Network::RecvFrom(int32_t nHandle, const void **ppBuffer, uint32_t *pFromIp, uint16_t *pFromPort) {
 	*ppBuffer = &s_ReadBuffer;
 	return RecvFrom(nHandle, s_ReadBuffer, MAX_SEGMENT_LENGTH, pFromIp, pFromPort);
 }
 
-void Network::SendTo(__attribute__((unused)) int32_t nHandle, const void *pBuffer, uint16_t nLength, uint32_t to_ip, uint16_t remote_port) {
+void Network::Run() {
+	if (s_callback != nullptr) {
+		uint32_t nFromIp;
+		uint16_t nFromPort;
+		auto nSize = RecvFrom(0, s_ReadBuffer, MAX_SEGMENT_LENGTH, &nFromIp, &nFromPort);
+		if (nSize > 0) {
+			s_callback(s_ReadBuffer, nSize, nFromIp, nFromPort);
+		}
+	}
+}
+
+void Network::SendTo([[maybe_unused]] int32_t nHandle, const void *pBuffer, uint32_t nLength, uint32_t to_ip, uint16_t remote_port) {
 	assert(pBuffer != nullptr);
 
 	esp8266_write_4bits(CMD_WIFI_UDP_SEND);
@@ -197,7 +210,7 @@ bool Network::Start() {
 	}
 
 	esp8266_write_4bits(CMD_WIFI_MAC_ADDRESS);
-	esp8266_read_bytes(m_aNetMacaddr, network::MAC_SIZE);
+	esp8266_read_bytes(m_aNetMacaddr, net::MAC_SIZE);
 
 	printf(" MAC address : " MACSTR "\n", MAC2STR(m_aNetMacaddr));
 
